@@ -45,7 +45,7 @@ class Node {
 class TreeNode: public Node {
  public:
   TreeNode(string name) : Node(name) { cout << "TreeNode constructor" << endl; }
-  ~TreeNode() { cout << "TreeNode destructor" << endl; }
+  virtual ~TreeNode() { cout << "TreeNode destructor" << endl; }
   TreeNode *Child(size_t i) const {
     return static_cast<TreeNode *>(Node::Child(i));
   }
