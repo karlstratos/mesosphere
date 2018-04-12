@@ -5,6 +5,7 @@
 CORE = ..
 BUILD = build
 GTEST = ../../third_party/googletest
+EIGEN = ../../third_party/eigen-eigen-5a0156e40feb
 
 CC = clang++
 WARN = -Wall
@@ -14,9 +15,9 @@ LIB =
 ifeq ($(shell uname), Linux)
 	LIB += -lpthread
 endif
-INC = -isystem $(GTEST)/include
+INC = -I $(EIGEN) -isystem $(GTEST)/include
 
-TARGETS = graph_test util_test
+TARGETS = graph_test util_eigen_test util_test
 ################################################################################
 
 
@@ -33,6 +34,9 @@ clean:
 graph_test: dir $(BUILD)/graph_test.o $(BUILD)/graph.o $(BUILD)/gtest_main.a
 	$(CC) $(filter-out dir,$^) -o $@ $(LIB)
 
+util_eigen_test: dir $(BUILD)/util_eigen_test.o $(BUILD)/gtest_main.a
+	$(CC) $(filter-out dir,$^) -o $@ $(LIB)
+
 util_test: dir $(BUILD)/util_test.o $(BUILD)/gtest_main.a
 	$(CC) $(filter-out dir,$^) -o $@ $(LIB)
 
@@ -40,7 +44,11 @@ util_test: dir $(BUILD)/util_test.o $(BUILD)/gtest_main.a
 $(BUILD)/graph_test.o: graph_test.cc
 	$(CC) $(CFLAGS) $(INC) -c $< -o $@
 
-$(BUILD)/graph.o: $(CORE)/graph.*
+$(BUILD)/graph.o: $(CORE)/graph.* $(CORE)/util.h
+	$(CC) $(CFLAGS) $(INC) -c $< -o $@
+
+$(BUILD)/util_eigen_test.o: util_eigen_test.cc $(CORE)/util_eigen.h \
+	$(CORE)/util.h
 	$(CC) $(CFLAGS) $(INC) -c $< -o $@
 
 $(BUILD)/util_test.o: util_test.cc $(CORE)/util.h

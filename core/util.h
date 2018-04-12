@@ -22,8 +22,6 @@
 #include <unordered_map>
 #include <vector>
 
-namespace util_string {
-
 // Assert macro that allows adding a message to an assertion upon failure. It
 // implictly performs string conversion: ASSERT(x > 0, "Negative x: " << x);
 #ifndef NDEBUG
@@ -38,6 +36,8 @@ namespace util_string {
 #else
 #   define ASSERT(condition, message) do { } while (false)
 #endif
+
+namespace util_string {
 
 // Buffers a string to have a certain length.
 inline std::string buffer_string(const std::string &given_string, size_t length,
