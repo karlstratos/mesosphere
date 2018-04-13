@@ -12,11 +12,17 @@ namespace graph {
 void Node::AddParent(Node *parent) {
   parents_.push_back(parent);
   parent->children_.push_back(this);
+
+  index_as_child_.push_back(parent->children_.size() - 1);
+  parent->index_as_parent_.push_back(parents_.size() - 1);
 }
 
 void Node::AddChild(Node *child) {
   children_.push_back(child);
   child->parents_.push_back(this);
+
+  index_as_parent_.push_back(child->parents_.size() - 1);
+  child->index_as_child_.push_back(children_.size() - 1);
 }
 
 Node *Node::Parent(size_t i) {
@@ -31,19 +37,32 @@ Node *Node::Child(size_t i) {
   return children_[i];
 }
 
-void Node::DeleteBackward(Node *node) {
-  for (Node *parent : node->parents_) { DeleteBackward(parent); }
-  delete node;
+void Node::DeleteUniqueSink(Node *unique_sink) {
+  for (Node *parent : unique_sink->parents_) {
+    // We must check if the parent has already been deleted by its other child:
+    //
+    //          x - y                * - y           Do not delete x
+    //           \ /         =>         /               again from y!
+    //            z                    z
+    if (parent != nullptr) { DeleteUniqueSink(parent); }
+  }
+  for (size_t i = 0; i < unique_sink->NumChildren(); ++i) {
+    // Disqualify the node as a parent.
+    unique_sink->Child(i)->parents_[unique_sink->index_as_parent_[i]] = nullptr;
+  }
+  delete unique_sink;
 }
 
-void Node::DeleteForward(Node *node) {
-  for (Node *child : node->children_) { DeleteForward(child); }
-  delete node;
+void Node::DeleteTreeRoot(Node *node) {
+  // In a tree, each node is the child of at exactly one node (except the root),
+  // so this bottom-up traversal will visit each node exactly once.
+  for (Node *child : node->children_) { DeleteTreeRoot(child); }
+
+  delete node;  // Not bothering to disqualify the node as a child parent.
 }
 
 void TreeNode::AddChildToTheRight(TreeNode *child) {
   Node::AddChild(child);
-  child->set_child_index(NumChildren() - 1);  // Mark the child index.
 
   // Adjust the span.
   ASSERT(child->span_begin_ >= 0
@@ -95,13 +114,14 @@ bool TreeNode::Compare(std::string node_string) {
   TreeReader tree_reader;
   TreeNode *node = tree_reader.CreateTreeFromTreeString(node_string);
   bool is_same = Compare(node);
-  node->DeleteSelfAndDescendants();
+  node->DeleteThisTreeRoot();
   return is_same;
 }
 
 TreeNode *TreeNode::Copy() {
-  TreeNode *new_node = new TreeNode(name());
-  new_node->child_index_ = child_index_;
+  TreeNode *new_node = new TreeNode(name_);
+  new_node->index_as_parent_ = index_as_parent_;
+  new_node->index_as_child_ = index_as_child_;
   new_node->span_begin_ = span_begin_;
   new_node->span_end_ = span_end_;
   new_node->min_depth_ = min_depth_;
@@ -157,13 +177,13 @@ TreeNode *TreeReader::CreateTreeFromTokenSequence(const std::vector<std::string>
       node_stack.pop();
       if (popped_node->name().empty()) {
         // If the child is empty, just remove it.
-        popped_node->DeleteSelfAndDescendants();
+        popped_node->DeleteThisTreeRoot();
         continue;
       } else {
         if (node_stack.top()->name().empty()) {
           // If the parent is empty, skip it.
           TreeNode *parent_node = node_stack.top();
-          parent_node->DeleteSelfAndDescendants();
+          parent_node->DeleteThisTreeRoot();
           node_stack.pop();
           node_stack.push(popped_node);
         } else {

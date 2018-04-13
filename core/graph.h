@@ -20,16 +20,17 @@ namespace graph {
 //      classes. Do *not* define their own delete functions in derived classes
 //      to avoid complications with Node types.
 //
-//   3. Properly delete nodes to avoid memory leaks.
-//                 (tree)   root->DeleteDescendantsAndSelf();
-//        (connected DAG)   sink->DeleteAscendantsAndSelf();
+//   3. Properly delete nodes to avoid memory leaks. For example,
+//                 (tree)   tree_root->DeleteThisTreeRoot();
+//        (connected DAG)   unique_sink->DeleteThisUniqueSink();
+//        (or explicitly delete the list of nodes created yourself)
 class Node {
  public:
   Node(std::string name) : name_(name) { }
   virtual ~Node() { }
 
-  void DeleteSelfAndAscendants() { DeleteBackward(this); }
-  void DeleteSelfAndDescendants() { DeleteForward(this); }
+  void DeleteThisUniqueSink() { DeleteUniqueSink(this); }
+  void DeleteThisTreeRoot() { DeleteTreeRoot(this); }
 
   void AddParent(Node *parent);
   void AddChild(Node *child);
@@ -50,9 +51,15 @@ class Node {
   std::vector<Node *> parents_;  // Parent Nodes.
   std::vector<Node *> children_;  // Children Nodes.
 
+  // index_as_parent_[i]: j such that Child(i)->Parent(j) = this.
+  std::vector<size_t> index_as_parent_;
+
+  // index_as_child_[i]: j such that Parent(i)->Child(j) = this.
+  std::vector<size_t> index_as_child_;
+
  private:
-  void DeleteBackward(Node *node);
-  void DeleteForward(Node *node);
+  void DeleteUniqueSink(Node *unique_sink);
+  void DeleteTreeRoot(Node *tree_root);
 };
 
 // A TreeNode object represents a vertex in a tree.

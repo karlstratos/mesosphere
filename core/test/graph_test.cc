@@ -4,6 +4,60 @@
 
 #include "../graph.h"
 
+TEST(DeleteThisUniqueSink, Test) {
+  //           x   y
+  //          / \ / \
+  //         l - z - q
+  //          \ /__//
+  //           m   /
+  //            \ /
+  //             n
+  graph::Node *x = new graph::Node("x");
+  graph::Node *y = new graph::Node("y");
+  graph::Node *z = new graph::Node("z");
+  graph::Node *l = new graph::Node("l");
+  graph::Node *q = new graph::Node("q");
+  graph::Node *m = new graph::Node("m");
+  graph::Node *n = new graph::Node("n");
+  x->AddChild(l);
+  x->AddChild(z);
+  y->AddChild(z);
+  y->AddChild(q);
+  z->AddChild(l);
+  z->AddChild(m);
+  z->AddChild(q);
+  l->AddChild(m);
+  q->AddChild(m);
+  q->AddChild(n);
+  m->AddChild(n);
+
+  n->DeleteThisUniqueSink();
+}
+
+TEST(DeleteThisTreeRoot, Test) {
+  //
+  //           x
+  //          / \
+  //         y   z
+  //        / \ / \
+  //       l  q m  n
+  graph::Node *x = new graph::Node("x");
+  graph::Node *y = new graph::Node("y");
+  graph::Node *z = new graph::Node("z");
+  graph::Node *l = new graph::Node("l");
+  graph::Node *q = new graph::Node("q");
+  graph::Node *m = new graph::Node("m");
+  graph::Node *n = new graph::Node("n");
+  x->AddChild(y);
+  x->AddChild(z);
+  y->AddChild(l);
+  y->AddChild(q);
+  z->AddChild(m);
+  z->AddChild(n);
+
+  x->DeleteThisTreeRoot();
+}
+
 void expect_node(graph::TreeNode *node, std::string name, size_t num_parents,
                  graph::TreeNode *parent, size_t num_children, int span_begin,
                  int span_end, size_t min_depth, size_t max_depth) {
@@ -67,7 +121,7 @@ TEST_F(TreeReaderTest, ReadGenericTree) {
   graph::TreeNode *child13 = child1->Child(2);
   expect_node(child13, "D", 1, child1, 0, 2, 2, 0, 0);
 
-  root->DeleteSelfAndDescendants();
+  root->DeleteThisTreeRoot();
 }
 
 TEST_F(TreeReaderTest, ReadDepth1Tree1Child) {
@@ -79,7 +133,7 @@ TEST_F(TreeReaderTest, ReadDepth1Tree1Child) {
   // nullptr -> [A] -> a
   expect_preleaf(root, "A", 0, nullptr, 0, "a");
 
-  root->DeleteSelfAndDescendants();
+  root->DeleteThisTreeRoot();
 }
 
 TEST_F(TreeReaderTest, ReadDepth1TreeManyChildren) {
@@ -94,7 +148,7 @@ TEST_F(TreeReaderTest, ReadDepth1TreeManyChildren) {
   expect_node(root->Child(1), "b", 1, root, 0, 1, 1, 0, 0);
   expect_node(root->Child(2), "c", 1, root, 0, 2, 2, 0, 0);
 
-  root->DeleteSelfAndDescendants();
+  root->DeleteThisTreeRoot();
 }
 
 TEST_F(TreeReaderTest, ReadSingletonTree) {
@@ -104,16 +158,16 @@ TEST_F(TreeReaderTest, ReadSingletonTree) {
   // nullptr -> [a]
   expect_node(root, "a", 0, nullptr, 0, 0, 0, 0, 0);
 
-  root->DeleteSelfAndDescendants();
+  root->DeleteThisTreeRoot();
 }
 
 TEST_F(TreeReaderTest, ReadEmptyTree) {
   graph::TreeNode *root = tree_reader_.CreateTreeFromTreeString("()");
   expect_node(root, "", 0, nullptr, 0, 0, 0, 0, 0);
-  root->DeleteSelfAndDescendants();
+  root->DeleteThisTreeRoot();
   root = tree_reader_.CreateTreeFromTreeString("((((()))()()))");
   expect_node(root, "", 0, nullptr, 0, 0, 0, 0, 0);
-  root->DeleteSelfAndDescendants();
+  root->DeleteThisTreeRoot();
 }
 
 TEST_F(TreeReaderTest, ReadTreeWithExtraBrackets) {
@@ -134,7 +188,7 @@ TEST_F(TreeReaderTest, ReadTreeWithExtraBrackets) {
   graph::TreeNode *child1 = root->Child(0);
   expect_preleaf(child1, "B", 1, root, 0, "b");
 
-  root->DeleteSelfAndDescendants();
+  root->DeleteThisTreeRoot();
 }
 
 TEST_F(TreeReaderTest, Compare) {
@@ -150,7 +204,7 @@ TEST_F(TreeReaderTest, Compare) {
   EXPECT_FALSE(tree1->Compare(tree3_string));
   EXPECT_FALSE(tree1->Compare(tree4_string));
   EXPECT_FALSE(tree1->Compare(tree5_string));
-  tree1->DeleteSelfAndDescendants();
+  tree1->DeleteThisTreeRoot();
 }
 
 int main(int argc, char** argv) {

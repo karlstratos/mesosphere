@@ -14,8 +14,7 @@ class Node {
   void AddParent(Node *parent) {
     parents_.push_back(parent);
     parent->children_.push_back(this);
-    size_t before = parent->pindex_.size();
-    parent->pindex_.push_back(before);
+    parent->pindex_.push_back(parents_.size() - 1);
   }
   Node *Parent(size_t i) const { return parents_[i]; }
   Node *Child(size_t i) const { return children_[i]; }
