@@ -17,7 +17,7 @@ ifeq ($(shell uname), Linux)
 endif
 INC = -I $(EIGEN) -isystem $(GTEST)/include
 
-TARGETS = graph_test util_eigen_test util_test
+TARGETS = autodiff_test graph_test util_eigen_test util_test
 ################################################################################
 
 
@@ -31,6 +31,10 @@ clean:
 	rm -rf $(BUILD) $(TARGETS) *.dSYM
 
 # Linking
+autodiff_test: dir $(BUILD)/autodiff_test.o $(BUILD)/autodiff.o \
+	$(BUILD)/graph.o $(BUILD)/gtest_main.a
+	$(CC) $(filter-out dir,$^) -o $@ $(LIB)
+
 graph_test: dir $(BUILD)/graph_test.o $(BUILD)/graph.o $(BUILD)/gtest_main.a
 	$(CC) $(filter-out dir,$^) -o $@ $(LIB)
 
@@ -41,6 +45,12 @@ util_test: dir $(BUILD)/util_test.o $(BUILD)/gtest_main.a
 	$(CC) $(filter-out dir,$^) -o $@ $(LIB)
 
 # Compiling
+$(BUILD)/autodiff_test.o: autodiff_test.cc
+	$(CC) $(CFLAGS) $(INC) -c $< -o $@
+
+$(BUILD)/autodiff.o: $(CORE)/autodiff.* $(CORE)/graph.* $(CORE)/util_eigen.h
+	$(CC) $(CFLAGS) $(INC) -c $< -o $@
+
 $(BUILD)/graph_test.o: graph_test.cc
 	$(CC) $(CFLAGS) $(INC) -c $< -o $@
 

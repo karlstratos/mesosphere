@@ -84,7 +84,7 @@ class TreeNode: public Node {
   size_t NumLeaves() { return span_end_ - span_begin_ + 1; }
 
   // Gets the leaves of this node as a sequence of leaf strings.
-  void Leaves(std::vector<std::string> *leaf_strings);
+  std::vector<std::string> Leaves();
 
   // Returns the string form of this node.
   std::string ToString();

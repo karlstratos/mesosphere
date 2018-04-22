@@ -78,21 +78,22 @@ void TreeNode::AddChildToTheRight(TreeNode *child) {
   max_depth_ = std::max(max_depth_, child->max_depth_ + 1);
 }
 
-void TreeNode::Leaves(std::vector<std::string> *leaf_strings)  {
-  leaf_strings->clear();
+std::vector<std::string> TreeNode::Leaves()  {
+  std::vector<std::string> leaf_strings;
   std::stack<TreeNode *> dfs_stack;  // Depth-first search (DFS)
   dfs_stack.push(this);
   while (!dfs_stack.empty()) {
     TreeNode *node = dfs_stack.top();
     dfs_stack.pop();
     if (node->IsLeaf()) {
-      leaf_strings->push_back(node->name());
+      leaf_strings.push_back(node->name());
     }
     // Putting on the stack right-to-left means popping left-to-right.
     for (int i = node->NumChildren() - 1; i >= 0; --i) {
       dfs_stack.push(node->Child(i));
     }
   }
+  return leaf_strings;
 }
 
 std::string TreeNode::ToString() {
