@@ -12,6 +12,19 @@
 
 namespace util_eigen {
 
+// Initializes a matrix.
+Eigen::MatrixXd initialize(size_t num_rows, size_t num_columns,
+                           std::string method) {
+  Eigen::MatrixXd W;
+  if (initialization_method == "xavier") {
+    W = sqrt(3.0 / num_columns) * Eigen::MatrixXd::Random(num_rows,
+                                                          num_columns);
+  } else {
+    ASSERT(false, "Unknown initialization method: " << method);
+  }
+  return W;
+}
+
 // Stably computes log(sum_i e^{x_i}) for given x.
 template<typename EigenDenseMatrix>
 double logsumexp(const EigenDenseMatrix& values) {
