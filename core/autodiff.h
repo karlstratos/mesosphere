@@ -10,7 +10,6 @@
 #include <Eigen/Dense>
 
 #include "graph.h"
-#include "util.h"
 #include "util_eigen.h"
 
 namespace autodiff {
@@ -73,12 +72,15 @@ class Input: public Variable {
   bool called_forward_ = false;
 };
 
-// Add variable that represents X + Y.
+// Add variable that represents X + Y. If X is a non-vector and Y is a vector,
+// this operation is assumed to be X + [Y ... Y].
 class Add: public Variable {
  public:
   Add(std::string name, Variable *X, Variable *Y);
   void Forward(std::vector<Variable *> *topological_ordering) override;
   void PropagateGradient() override;
+ protected:
+  bool matrix_vector_ = false;
 };
 
 // Multiply variable that represents X * Y.

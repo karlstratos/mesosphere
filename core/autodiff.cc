@@ -38,19 +38,31 @@ Add::Add(std::string name, Variable *X, Variable *Y) : Variable(name) {
   AddParent(X);
   AddParent(Y);
   gradient_ = Eigen::MatrixXd::Zero(X->NumRows(), X->NumColumns());
+  if (X->NumColumns() > Y->NumColumns()) {
+    ASSERT(Y->NumColumns() == 1, "Only matrix-vector add supported, given: "
+           << X->Shape() << " + " << Y->Shape());
+    matrix_vector_ = true;
+  }
 }
 
 void Add::Forward(std::vector<Variable *> *topological_ordering) {
   if (value_.rows() > 0) { return; }
   Parent(0)->Forward(topological_ordering);
   Parent(1)->Forward(topological_ordering);
-  value_ = *Parent(0)->value() + *Parent(1)->value();
+  if (matrix_vector_) {
+    value_ = Parent(0)->value()->colwise() +
+             static_cast<Eigen::VectorXd>(*Parent(1)->value());
+  } else {
+    value_ = *Parent(0)->value() + *Parent(1)->value();
+  }
   topological_ordering->push_back(this);
 }
 
 void Add::PropagateGradient() {
   *Parent(0)->gradient() += gradient_;
-  *Parent(1)->gradient() += gradient_;
+  *Parent(1)->gradient() += (matrix_vector_) ?
+                            gradient_.rowwise().sum() :
+                            gradient_;
 }
 
 Multiply::Multiply(std::string name, Variable *X, Variable *Y)
