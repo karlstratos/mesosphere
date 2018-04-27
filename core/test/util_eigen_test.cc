@@ -5,36 +5,48 @@
 #include "../util_eigen.h"
 
 TEST(LogSumExp, Test) {
-  Eigen::MatrixXd values(3, 1);
-  values << 1, 2, 3;
-  EXPECT_NEAR(util_eigen::logsumexp(values), 3.4076, 1e-4);
+  Eigen::MatrixXd columns(3, 2);
+  columns << 1, 1, 2, 2, 3, 3;
+  Eigen::MatrixXd output = util_eigen::logsumexp(columns);
+  EXPECT_NEAR(output(0), 3.4076, 1e-4);
+  EXPECT_NEAR(output(1), 3.4076, 1e-4);
 
-  Eigen::MatrixXd values_large = values.array() + 1000000;
-  EXPECT_TRUE(isinf(log(values_large.array().exp().sum())));
-  EXPECT_NEAR(util_eigen::logsumexp(values_large), 1000003.4076, 1e-4);
+  Eigen::MatrixXd columns_large = columns.array() + 1000000;
+  Eigen::MatrixXd output_large = util_eigen::logsumexp(columns_large);
+  EXPECT_TRUE(isinf(columns_large.array().exp().colwise().sum().log()(0)));
+  EXPECT_TRUE(isinf(columns_large.array().exp().colwise().sum().log()(1)));
+  EXPECT_NEAR(output_large(0), 1000003.4076, 1e-4);
+  EXPECT_NEAR(output_large(1), 1000003.4076, 1e-4);
 }
 
 TEST(Softmax, Test) {
-  Eigen::MatrixXd values(3, 1);
-  values << 1, 2, 3;
-  Eigen::MatrixXd output = util_eigen::softmax(values);
+  Eigen::MatrixXd columns(3, 2);
+  columns << 1, 1, 2, 2, 3, 3;
+  Eigen::MatrixXd output = util_eigen::softmax(columns);
   EXPECT_NEAR(output(0, 0), 0.0900, 1e-4);
   EXPECT_NEAR(output(1, 0), 0.2447, 1e-4);
   EXPECT_NEAR(output(2, 0), 0.6652, 1e-4);
+  EXPECT_NEAR(output(0, 1), 0.0900, 1e-4);
+  EXPECT_NEAR(output(1, 1), 0.2447, 1e-4);
+  EXPECT_NEAR(output(2, 1), 0.6652, 1e-4);
 
-  Eigen::MatrixXd values_large_positive = values.array() + 1000000;
   Eigen::MatrixXd output_large_positive = util_eigen::softmax(
-      values_large_positive);
+      columns.array() + 1000000);
   EXPECT_NEAR(output_large_positive(0, 0), 0.0900, 1e-4);
   EXPECT_NEAR(output_large_positive(1, 0), 0.2447, 1e-4);
   EXPECT_NEAR(output_large_positive(2, 0), 0.6652, 1e-4);
+  EXPECT_NEAR(output_large_positive(0, 1), 0.0900, 1e-4);
+  EXPECT_NEAR(output_large_positive(1, 1), 0.2447, 1e-4);
+  EXPECT_NEAR(output_large_positive(2, 1), 0.6652, 1e-4);
 
-  Eigen::MatrixXd values_large_negative = values.array() - 1000000;
   Eigen::MatrixXd output_large_negative = util_eigen::softmax(
-      values_large_negative);
+      columns.array() - 1000000);
   EXPECT_NEAR(output_large_negative(0, 0), 0.0900, 1e-4);
   EXPECT_NEAR(output_large_negative(1, 0), 0.2447, 1e-4);
   EXPECT_NEAR(output_large_negative(2, 0), 0.6652, 1e-4);
+  EXPECT_NEAR(output_large_negative(0, 1), 0.0900, 1e-4);
+  EXPECT_NEAR(output_large_negative(1, 1), 0.2447, 1e-4);
+  EXPECT_NEAR(output_large_negative(2, 1), 0.6652, 1e-4);
 }
 
 TEST(DimensionString, Test) {

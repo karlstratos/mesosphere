@@ -25,22 +25,20 @@ inline Eigen::MatrixXd initialize(size_t num_rows, size_t num_columns,
   return W;
 }
 
-// Stably computes log(sum_i e^{x_i}) for given x.
-template<typename EigenDenseMatrix>
-double logsumexp(const EigenDenseMatrix& values) {
+// Column-wise stable log(sum_i e^{x_i}).
+inline Eigen::MatrixXd logsumexp(const Eigen::MatrixXd& columns) {
   // logsumexp(x) = C + logsumexp(x - C) for any C. Choose C = max{x_i}.
-  double max_value = values.maxCoeff();
-  EigenDenseMatrix shifted_exp = (values.array() - max_value).exp();
-  return max_value + log(shifted_exp.sum());
+  Eigen::RowVectorXd max_values = columns.colwise().maxCoeff();
+  Eigen::ArrayXXd shifted_exp = (columns.rowwise() - max_values).array().exp();
+  return max_values + shifted_exp.colwise().sum().log().matrix();
 }
 
-// Stably computes softmax(x) for given x.
-template<typename EigenDenseMatrix>
-EigenDenseMatrix softmax(const EigenDenseMatrix& values) {
-  // softmax(x) = softmax(x + C) for any C. Choose C = -max{x_i}.
-  double max_value = values.maxCoeff();
-  EigenDenseMatrix shifted_exp = (values.array() - max_value).exp();
-  return shifted_exp / shifted_exp.sum();
+// Column-wise stable softmax.
+inline Eigen::MatrixXd softmax(const Eigen::MatrixXd& columns) {
+  // softmax(x) = softmax(x - C) for any C. Choose C = max{x_i}.
+  Eigen::ArrayXXd shifted_exp = (columns.rowwise() -
+                                 columns.colwise().maxCoeff()).array().exp();
+  return shifted_exp.rowwise() / shifted_exp.colwise().sum();
 }
 
 // Returns the dimensions of a matrix in string form.
