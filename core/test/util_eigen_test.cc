@@ -2,51 +2,53 @@
 
 #include "gtest/gtest.h"
 
+#include <vector>
+
 #include "../util_eigen.h"
 
 TEST(LogSumExp, Test) {
   Eigen::MatrixXd columns(3, 2);
   columns << 1, 1, 2, 2, 3, 3;
   Eigen::MatrixXd output = util_eigen::logsumexp(columns);
-  EXPECT_NEAR(output(0), 3.4076, 1e-4);
-  EXPECT_NEAR(output(1), 3.4076, 1e-4);
+  EXPECT_NEAR(3.4076, output(0), 1e-4);
+  EXPECT_NEAR(3.4076, output(1), 1e-4);
 
   Eigen::MatrixXd columns_large = columns.array() + 1000000;
   Eigen::MatrixXd output_large = util_eigen::logsumexp(columns_large);
   EXPECT_TRUE(isinf(columns_large.array().exp().colwise().sum().log()(0)));
   EXPECT_TRUE(isinf(columns_large.array().exp().colwise().sum().log()(1)));
-  EXPECT_NEAR(output_large(0), 1000003.4076, 1e-4);
-  EXPECT_NEAR(output_large(1), 1000003.4076, 1e-4);
+  EXPECT_NEAR(1000003.4076, output_large(0), 1e-4);
+  EXPECT_NEAR(1000003.4076, output_large(1), 1e-4);
 }
 
 TEST(Softmax, Test) {
   Eigen::MatrixXd columns(3, 2);
   columns << 1, 1, 2, 2, 3, 3;
   Eigen::MatrixXd output = util_eigen::softmax(columns);
-  EXPECT_NEAR(output(0, 0), 0.0900, 1e-4);
-  EXPECT_NEAR(output(1, 0), 0.2447, 1e-4);
-  EXPECT_NEAR(output(2, 0), 0.6652, 1e-4);
-  EXPECT_NEAR(output(0, 1), 0.0900, 1e-4);
-  EXPECT_NEAR(output(1, 1), 0.2447, 1e-4);
-  EXPECT_NEAR(output(2, 1), 0.6652, 1e-4);
+  EXPECT_NEAR(0.0900, output(0, 0), 1e-4);
+  EXPECT_NEAR(0.2447, output(1, 0), 1e-4);
+  EXPECT_NEAR(0.6652, output(2, 0), 1e-4);
+  EXPECT_NEAR(0.0900, output(0, 1), 1e-4);
+  EXPECT_NEAR(0.2447, output(1, 1), 1e-4);
+  EXPECT_NEAR(0.6652, output(2, 1), 1e-4);
 
   Eigen::MatrixXd output_large_positive = util_eigen::softmax(
       columns.array() + 1000000);
-  EXPECT_NEAR(output_large_positive(0, 0), 0.0900, 1e-4);
-  EXPECT_NEAR(output_large_positive(1, 0), 0.2447, 1e-4);
-  EXPECT_NEAR(output_large_positive(2, 0), 0.6652, 1e-4);
-  EXPECT_NEAR(output_large_positive(0, 1), 0.0900, 1e-4);
-  EXPECT_NEAR(output_large_positive(1, 1), 0.2447, 1e-4);
-  EXPECT_NEAR(output_large_positive(2, 1), 0.6652, 1e-4);
+  EXPECT_NEAR(0.0900, output_large_positive(0, 0), 1e-4);
+  EXPECT_NEAR(0.2447, output_large_positive(1, 0), 1e-4);
+  EXPECT_NEAR(0.6652, output_large_positive(2, 0), 1e-4);
+  EXPECT_NEAR(0.0900, output_large_positive(0, 1), 1e-4);
+  EXPECT_NEAR(0.2447, output_large_positive(1, 1), 1e-4);
+  EXPECT_NEAR(0.6652, output_large_positive(2, 1), 1e-4);
 
   Eigen::MatrixXd output_large_negative = util_eigen::softmax(
       columns.array() - 1000000);
-  EXPECT_NEAR(output_large_negative(0, 0), 0.0900, 1e-4);
-  EXPECT_NEAR(output_large_negative(1, 0), 0.2447, 1e-4);
-  EXPECT_NEAR(output_large_negative(2, 0), 0.6652, 1e-4);
-  EXPECT_NEAR(output_large_negative(0, 1), 0.0900, 1e-4);
-  EXPECT_NEAR(output_large_negative(1, 1), 0.2447, 1e-4);
-  EXPECT_NEAR(output_large_negative(2, 1), 0.6652, 1e-4);
+  EXPECT_NEAR(0.0900, output_large_negative(0, 0), 1e-4);
+  EXPECT_NEAR(0.2447, output_large_negative(1, 0), 1e-4);
+  EXPECT_NEAR(0.6652, output_large_negative(2, 0), 1e-4);
+  EXPECT_NEAR(0.0900, output_large_negative(0, 1), 1e-4);
+  EXPECT_NEAR(0.2447, output_large_negative(1, 1), 1e-4);
+  EXPECT_NEAR(0.6652, output_large_negative(2, 1),1e-4);
 }
 
 TEST(DimensionString, Test) {
@@ -232,6 +234,28 @@ TEST(Miscellaneous, CheckNearDenseMatricesAbs) {
                                       error_threshold));
   ASSERT_TRUE(util_eigen::check_near_abs(random_matrix1, random_matrix2,
                                          error_threshold));
+}
+
+TEST(Indexing, Test) {
+  //  1   2   3      [2 1] [0 2 1 1]       =>         7   9   8   8
+  //  4   5   6                                       4   6   5   5
+  //  7   8   9
+  Eigen::MatrixXd A(3, 3);
+  A << 1, 2, 3, 4, 5, 6, 7, 8, 9;
+  std::vector<size_t> r_vector = {2, 1};
+  Eigen::Map<Eigen::Array<size_t, Eigen::Dynamic, 1>> r(r_vector.data(),
+                                                        r_vector.size());
+  std::vector<int> c_vector = {0, 2, 1, 1};
+  Eigen::Map<Eigen::ArrayXi> c(c_vector.data(), c_vector.size());
+  Eigen::MatrixXd B = util_eigen::indexing(A, r, c);
+  EXPECT_EQ(7, B(0, 0));
+  EXPECT_EQ(4, B(1, 0));
+  EXPECT_EQ(9, B(0, 1));
+  EXPECT_EQ(6, B(1, 1));
+  EXPECT_EQ(8, B(0, 2));
+  EXPECT_EQ(5, B(1, 2));
+  EXPECT_EQ(8, B(0, 3));
+  EXPECT_EQ(5, B(1, 3));
 }
 
 int main(int argc, char** argv) {

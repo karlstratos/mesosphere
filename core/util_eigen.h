@@ -12,19 +12,6 @@
 
 namespace util_eigen {
 
-// Initializes a matrix.
-inline Eigen::MatrixXd initialize(size_t num_rows, size_t num_columns,
-                                  std::string method) {
-  Eigen::MatrixXd W;
-  if (method == "xavier") {
-    W = sqrt(3.0 / num_columns) * Eigen::MatrixXd::Random(num_rows,
-                                                          num_columns);
-  } else {
-    ASSERT(false, "Unknown initialization method: " << method);
-  }
-  return W;
-}
-
 // Column-wise stable log(sum_i e^{x_i}).
 inline Eigen::MatrixXd logsumexp(const Eigen::MatrixXd& columns) {
   // logsumexp(x) = C + logsumexp(x - C) for any C. Choose C = max{x_i}.
@@ -39,6 +26,19 @@ inline Eigen::MatrixXd softmax(const Eigen::MatrixXd& columns) {
   Eigen::ArrayXXd shifted_exp = (columns.rowwise() -
                                  columns.colwise().maxCoeff()).array().exp();
   return shifted_exp.rowwise() / shifted_exp.colwise().sum();
+}
+
+// Initializes a matrix.
+inline Eigen::MatrixXd initialize(size_t num_rows, size_t num_columns,
+                                  std::string method) {
+  Eigen::MatrixXd W;
+  if (method == "xavier") {
+    W = sqrt(3.0 / num_columns) * Eigen::MatrixXd::Random(num_rows,
+                                                          num_columns);
+  } else {
+    ASSERT(false, "Unknown initialization method: " << method);
+  }
+  return W;
 }
 
 // Returns the dimensions of a matrix in string form.
@@ -252,6 +252,49 @@ double kl_divergence(const EigenDenseVector& distribution1,
   }
   return kl;
 }
+
+// http://eigen.tuxfamily.org/dox-devel/TopicCustomizing_NullaryExpr.html#title1
+// -----------------------------------------------------------------------------
+//
+// Nullary-functor storing references to the input matrix and to the two arrays
+// of indices, and implementing the required operator()(i,j):
+template<class ArgType, class RowIndexType, class ColIndexType>
+class indexing_functor {
+  const ArgType &m_arg;
+  const RowIndexType &m_rowIndices;
+  const ColIndexType &m_colIndices;
+ public:
+  typedef Eigen::Matrix<typename ArgType::Scalar,
+                        RowIndexType::SizeAtCompileTime,
+                        ColIndexType::SizeAtCompileTime,
+                        ArgType::Flags&Eigen::RowMajorBit?Eigen::RowMajor:\
+                        Eigen::ColMajor,
+                        RowIndexType::MaxSizeAtCompileTime,
+                        ColIndexType::MaxSizeAtCompileTime> MatrixType;
+  indexing_functor(const ArgType& arg, const RowIndexType& row_indices,
+                   const ColIndexType& col_indices)
+      : m_arg(arg), m_rowIndices(row_indices), m_colIndices(col_indices)
+  {}
+  const typename ArgType::Scalar& operator() (Eigen::Index row,
+                                              Eigen::Index col) const {
+    return m_arg(m_rowIndices[row], m_colIndices[col]);
+  }
+};
+
+// indexing(A,rows,cols) function creates the nullary expression.
+template <class ArgType, class RowIndexType, class ColIndexType>
+Eigen::CwiseNullaryOp<indexing_functor<ArgType,RowIndexType,ColIndexType>,
+                      typename indexing_functor<ArgType,
+                                                RowIndexType,
+                                                ColIndexType>::MatrixType>
+indexing(const Eigen::MatrixBase<ArgType>& arg, const RowIndexType& row_indices,
+         const ColIndexType& col_indices) {
+  typedef indexing_functor<ArgType,RowIndexType,ColIndexType> Func;
+  typedef typename Func::MatrixType MatrixType;
+  return MatrixType::NullaryExpr(row_indices.size(), col_indices.size(),
+                                 Func(arg.derived(), row_indices, col_indices));
+}
+//------------------------------------------------------------------------------
 
 }  // namespace util_eigen
 
