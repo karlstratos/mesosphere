@@ -57,12 +57,12 @@ class Variable: public graph::Node {
   Eigen::MatrixXd gradient_;
 };
 
-// Input variable that "hooks" onto input values.
+// X
 class Input: public Variable {
  public:
   Input(std::string name, Eigen::MatrixXd *input);
   void Forward(std::vector<Variable *> *topological_ordering) override;
-  void PropagateGradient() override { }  // Has no parent to propagate to.
+  void PropagateGradient() override { }
   void set_input(Eigen::MatrixXd *input) { input_ = input; }
 
   // Overrides value() so that it points to the external value it's hooked on.
@@ -72,10 +72,10 @@ class Input: public Variable {
   bool called_forward_ = false;
 };
 
-// Add variable that represents X + Y. If X is a non-vector and Y is a vector,
-// this operation is assumed to be X + [Y ... Y].
+// X + Y
 class Add: public Variable {
  public:
+  // If X is a non-vector and Y is a vector, assume X + [Y ... Y].
   Add(std::string name, Variable *X, Variable *Y);
   void Forward(std::vector<Variable *> *topological_ordering) override;
   void PropagateGradient() override;
@@ -83,22 +83,44 @@ class Add: public Variable {
   bool matrix_vector_ = false;
 };
 
-// Multiply variable that represents X * Y.
-struct Multiply: public Variable {
+// sum_i X_i
+class ReduceSum: public Variable {
+ public:
+  ReduceSum(std::string name, Variable *X);
+  void Forward(std::vector<Variable *> *topological_ordering) override;
+  void PropagateGradient() override {
+    Parent(0)->gradient()->array() += gradient_(0);
+  }
+};
+
+// X * Y
+class  Multiply: public Variable {
+ public:
   Multiply(std::string name, Variable *X, Variable *Y);
   void Forward(std::vector<Variable *> *topological_ordering) override;
   void PropagateGradient() override;
 };
 
-// Sign-flipping variable that represents -X.
-struct FlipSign: public Variable {
+// dot(X, Y)
+class Dot: public Variable {
+ public:
+  // X and Y can be either row or column.
+  Dot(std::string name, Variable *X, Variable *Y);
+  void Forward(std::vector<Variable *> *topological_ordering) override;
+  void PropagateGradient() override;
+};
+
+// -X
+class FlipSign: public Variable {
+ public:
   FlipSign(std::string name, Variable *X);
   void Forward(std::vector<Variable *> *topological_ordering) override;
   void PropagateGradient() override { *Parent(0)->gradient() -= gradient_; }
 };
 
-// Transpose variable that represents X^T.
-struct Transpose: public Variable {
+// X^T
+class Transpose: public Variable {
+ public:
   Transpose(std::string name, Variable *X);
   void Forward(std::vector<Variable *> *topological_ordering) override;
   void PropagateGradient() override {
@@ -106,8 +128,9 @@ struct Transpose: public Variable {
   }
 };
 
-// Logistic variable that represents element-wise 1 / (1 + exp(-X)).
-struct Logistic: public Variable {
+// 1 / (1 + exp(-x)): element-wise
+class Logistic: public Variable {
+ public:
   Logistic(std::string name, Variable *X);
   void Forward(std::vector<Variable *> *topological_ordering) override;
   void PropagateGradient() override {
@@ -116,8 +139,9 @@ struct Logistic: public Variable {
   }
 };
 
-// Tanh variable that represents element-wise tanh(X).
-struct Tanh: public Variable {
+// tanh(x): element-wise
+class Tanh: public Variable {
+ public:
   Tanh(std::string name, Variable *X);
   void Forward(std::vector<Variable *> *topological_ordering) override;
   void PropagateGradient() override {
@@ -126,30 +150,34 @@ struct Tanh: public Variable {
   }
 };
 
-// Softmax variable that represents softmax(X).
-struct Softmax: public Variable {
+// softmax(x): column-wise
+class Softmax: public Variable {
+ public:
   Softmax(std::string name, Variable *X);
   void Forward(std::vector<Variable *> *topological_ordering) override;
   void PropagateGradient() override;
 };
 
-// Pick variable that represents X_l for some index l.
-struct Pick: public Variable {
-  Pick(std::string name, Variable *X, size_t index);
+// x_l: column-wise
+class Pick: public Variable {
+ public:
+  Pick(std::string name, Variable *X, const std::vector<size_t> &indices);
   void Forward(std::vector<Variable *> *topological_ordering) override;
   void PropagateGradient() override;
  protected:
-  size_t index_;
+  std::vector<size_t> indices_;
 };
 
-// Pick + negative + log + softmax variable: - log softmax_l(X).
-struct PickNegativeLogSoftmax: public Variable {
-  PickNegativeLogSoftmax(std::string name, Variable *X, size_t index);
+// - log [softmax(x)]_l: column-wise
+class PickNegativeLogSoftmax: public Variable {
+ public:
+  PickNegativeLogSoftmax(std::string name, Variable *X,
+                         const std::vector<size_t> &indices);
   void Forward(std::vector<Variable *> *topological_ordering) override;
   void PropagateGradient() override;
  protected:
-  size_t index_;
-  Eigen::MatrixXd cached_value_;
+  std::vector<size_t> indices_;
+  Eigen::MatrixXd softmax_cache_;
 };
 
 }  // namespace autodiff

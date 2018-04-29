@@ -65,6 +65,18 @@ void Add::PropagateGradient() {
                             gradient_;
 }
 
+ReduceSum::ReduceSum(std::string name, Variable *X) : Variable(name) {
+  AddParent(X);
+  gradient_ = Eigen::MatrixXd::Zero(1, 1);
+}
+
+void ReduceSum::Forward(std::vector<Variable *> *topological_ordering) {
+  if (value_.rows() > 0) { return; }
+  Parent(0)->Forward(topological_ordering);
+  value_ = Eigen::MatrixXd::Constant(1, 1, Parent(0)->value()->sum());
+  topological_ordering->push_back(this);
+}
+
 Multiply::Multiply(std::string name, Variable *X, Variable *Y)
     : Variable(name) {
   AddParent(X);
@@ -83,6 +95,48 @@ void Multiply::Forward(std::vector<Variable *> *topological_ordering) {
 void Multiply::PropagateGradient() {
   *Parent(0)->gradient() += gradient_ * Parent(1)->value()->transpose();
   *Parent(1)->gradient() += Parent(0)->value()->transpose() * gradient_;
+}
+
+Dot::Dot(std::string name, Variable *X, Variable *Y) : Variable(name) {
+  ASSERT(std::min(X->NumRows(), X->NumColumns()) == 1 &&
+         std::min(Y->NumRows(), Y->NumColumns()) == 1 &&
+         std::max(X->NumRows(),
+                  X->NumColumns()) == std::max(Y->NumRows(),
+                                               Y->NumColumns()),
+         "Dot between X " << X->Shape() << " Y: " << Y->Shape());
+  AddParent(X);
+  AddParent(Y);
+  gradient_ = Eigen::MatrixXd::Zero(1, 1);
+}
+
+void Dot::Forward(std::vector<Variable *> *topological_ordering) {
+  if (value_.rows() > 0) { return; }
+  Parent(0)->Forward(topological_ordering);
+  Parent(1)->Forward(topological_ordering);
+  if (Parent(0)->NumColumns() == 1 && Parent(1)->NumColumns() == 1) {
+    value_ = Parent(0)->value()->transpose() * *Parent(1)->value();
+  } else if (Parent(0)->NumColumns() == 1 && Parent(1)->NumRows() == 1) {
+    value_ = *Parent(1)->value() * *Parent(0)->value();
+  } else if (Parent(0)->NumRows() == 1 && Parent(1)->NumColumns() == 1) {
+    value_ = *Parent(0)->value() * *Parent(1)->value();
+  } else {  // dot(row, row)
+    value_ = *Parent(0)->value() * Parent(1)->value()->transpose();
+  }
+  topological_ordering->push_back(this);
+}
+
+void Dot::PropagateGradient() {
+  if (Parent(0)->NumRows() == Parent(1)->NumRows()) {
+    *Parent(0)->gradient() +=
+        (gradient_(0) * Parent(1)->value()->array()).matrix();
+    *Parent(1)->gradient() +=
+        (gradient_(0) * Parent(0)->value()->array()).matrix();;
+  } else {
+    *Parent(0)->gradient() +=
+        (gradient_(0) * Parent(1)->value()->transpose().array()).matrix();
+    *Parent(1)->gradient() +=
+        (gradient_(0) * Parent(0)->value()->transpose().array()).matrix();
+  }
 }
 
 FlipSign::FlipSign(std::string name, Variable *X) : Variable(name) {
@@ -111,7 +165,7 @@ void Transpose::Forward(std::vector<Variable *> *topological_ordering) {
 
 Logistic::Logistic(std::string name, Variable *X) : Variable(name) {
   AddParent(X);
-  gradient_ = Eigen::MatrixXd::Zero(X->NumColumns(), X->NumRows());
+  gradient_ = Eigen::MatrixXd::Zero(X->NumRows(), X->NumColumns());
 }
 
 void Logistic::Forward(std::vector<Variable *> *topological_ordering) {
@@ -124,7 +178,7 @@ void Logistic::Forward(std::vector<Variable *> *topological_ordering) {
 
 Tanh::Tanh(std::string name, Variable *X) : Variable(name) {
   AddParent(X);
-  gradient_ = Eigen::MatrixXd::Zero(X->NumColumns(), X->NumRows());
+  gradient_ = Eigen::MatrixXd::Zero(X->NumRows(), X->NumColumns());
 }
 
 void Tanh::Forward(std::vector<Variable *> *topological_ordering) {
@@ -147,48 +201,63 @@ void Softmax::Forward(std::vector<Variable *> *topological_ordering) {
 }
 
 void Softmax::PropagateGradient() {
-  Eigen::MatrixXd v = gradient_.cwiseProduct(value_);
-  *Parent(0)->gradient() += v - v.sum() * value_;
+  Eigen::MatrixXd A = gradient_.cwiseProduct(value_);
+  *Parent(0)->gradient() += A - value_ * A.colwise().sum().asDiagonal();
 }
 
-Pick::Pick(std::string name, Variable *X, size_t index)
-    : Variable(name), index_(index) {
-  ASSERT(X->NumColumns() == 1, "Can't pick a non-vector");
+Pick::Pick(std::string name, Variable *X, const std::vector<size_t> &indices)
+    : Variable(name), indices_(indices) {
+  ASSERT(X->NumColumns() == indices.size(), "X " << X->Shape()
+         << " vs # " << indices.size());
   AddParent(X);
-  gradient_ = Eigen::MatrixXd::Zero(1, 1);
+  gradient_ = Eigen::MatrixXd::Zero(1, indices.size());
 }
 
 void Pick::Forward(std::vector<Variable *> *topological_ordering) {
   if (value_.rows() > 0) { return; }
   Parent(0)->Forward(topological_ordering);
-  value_ = Eigen::MatrixXd::Constant(1, 1, (*Parent(0)->value())(index_));
+
+  value_.resize(1, indices_.size());
+  for (size_t i = 0; i < indices_.size(); ++i) {
+    value_(i) = (*Parent(0)->value())(indices_[i]);
+  }
   topological_ordering->push_back(this);
 }
 
 void Pick::PropagateGradient() {
-  (*Parent(0)->gradient())(index_) += gradient_(0);
+  for (size_t i = 0; i < Parent(0)->NumColumns(); ++i) {
+    Parent(0)->gradient()->col(i)(indices_[i]) += gradient_(i);
+  }
 }
 
 PickNegativeLogSoftmax::PickNegativeLogSoftmax(std::string name, Variable *X,
-                                               size_t index)
-    : Variable(name), index_(index) {
-  ASSERT(X->NumColumns() == 1, "Can't pick a non-vector");
+                                               const std::vector<size_t>
+                                               &indices)
+    : Variable(name), indices_(indices) {
+  ASSERT(X->NumColumns() == indices_.size(), "X Shape: " << X->Shape()
+         << ", # indices: " << indices.size());
   AddParent(X);
-  gradient_ = Eigen::MatrixXd::Zero(1, 1);
+  gradient_ = Eigen::MatrixXd::Zero(1, indices_.size());
 }
 
 void PickNegativeLogSoftmax::Forward(std::vector<Variable *>
                                      *topological_ordering) {
   if (value_.rows() > 0) { return; }
   Parent(0)->Forward(topological_ordering);
-  cached_value_ = util_eigen::softmax(*Parent(0)->value());
-  value_ = Eigen::MatrixXd::Constant(1, 1, -log(cached_value_(index_)));
+  softmax_cache_ = util_eigen::softmax(*Parent(0)->value());
+
+  value_.resize(1, indices_.size());
+  for (size_t i = 0; i < indices_.size(); ++i) {
+    value_(i) = -log(softmax_cache_(indices_[i], i));
+  }
   topological_ordering->push_back(this);
 }
 
 void PickNegativeLogSoftmax::PropagateGradient() {
-  cached_value_(index_) -= 1.0;
-  *Parent(0)->gradient() += gradient_(0) * cached_value_;
+  for (size_t i = 0; i < indices_.size(); ++i) {
+    softmax_cache_(indices_[i], i) -= 1.0;
+  }
+  *Parent(0)->gradient() += softmax_cache_ * gradient_.asDiagonal();
 }
 
 }  // namespace autodiff
