@@ -77,6 +77,18 @@ void ReduceSum::Forward(std::vector<Variable *> *topological_ordering) {
   topological_ordering->push_back(this);
 }
 
+ReduceAverage::ReduceAverage(std::string name, Variable *X) : Variable(name) {
+  AddParent(X);
+  gradient_ = Eigen::MatrixXd::Zero(1, 1);
+}
+
+void ReduceAverage::Forward(std::vector<Variable *> *topological_ordering) {
+  if (value_.rows() > 0) { return; }
+  Parent(0)->Forward(topological_ordering);
+  value_ = Eigen::MatrixXd::Constant(1, 1, Parent(0)->value()->mean());
+  topological_ordering->push_back(this);
+}
+
 Multiply::Multiply(std::string name, Variable *X, Variable *Y)
     : Variable(name) {
   AddParent(X);

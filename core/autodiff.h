@@ -93,6 +93,16 @@ class ReduceSum: public Variable {
   }
 };
 
+// (1/n) sum_i X_i
+class ReduceAverage: public Variable {
+ public:
+  ReduceAverage(std::string name, Variable *X);
+  void Forward(std::vector<Variable *> *topological_ordering) override;
+  void PropagateGradient() override {
+    Parent(0)->gradient()->array() += gradient_(0) / Parent(0)->value()->size();
+  }
+};
+
 // X * Y
 class  Multiply: public Variable {
  public:
