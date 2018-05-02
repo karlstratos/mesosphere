@@ -215,6 +215,19 @@ void Tanh::Forward(std::vector<Variable *> *topological_ordering) {
   topological_ordering->push_back(this);
 }
 
+ReLU::ReLU(Variable *X) : Variable("relu(" + X->name() + ")") {
+  AddParent(X);
+  gradient_ = Eigen::MatrixXd::Zero(X->NumRows(), X->NumColumns());
+}
+
+void ReLU::Forward(std::vector<Variable *> *topological_ordering) {
+  if (value_.rows() > 0) { return; }
+  Parent(0)->Forward(topological_ordering);
+  value_ = Parent(0)->value()->unaryExpr(
+      [](double x) { return std::max(0.0, x); });
+  topological_ordering->push_back(this);
+}
+
 Softmax::Softmax(Variable *X) : Variable("softmax(" + X->name() + ")") {
   AddParent(X);
   gradient_ = Eigen::MatrixXd::Zero(X->NumRows(), X->NumColumns());

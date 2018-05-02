@@ -39,6 +39,9 @@ class Variable: public graph::Node {
   // Calls Forward and then Backward, returns a topological ordering.
   std::vector<Variable *> ForwardBackward();
 
+  void reset_gradient() { gradient_ = Eigen::MatrixXd::Zero(gradient_.rows(),
+                                                            gradient_.cols()); }
+
   std::string Shape() { return util_eigen::dimension_string(*gradient()); }
   size_t NumRows() { return gradient()->rows(); }
   size_t NumColumns() { return gradient()->cols(); }
@@ -166,6 +169,19 @@ class Tanh: public Variable {
   void PropagateGradient() override {
     *Parent(0)->gradient() += gradient_.cwiseProduct(
         value()->unaryExpr([](double x) { return 1 - pow(x, 2); }));
+  }
+};
+
+// relu(x): element-wise
+class ReLU: public Variable {
+ public:
+  ReLU(Variable *X);
+  void Forward(std::vector<Variable *> *topological_ordering) override;
+  void PropagateGradient() override {
+    *Parent(0)->gradient() += gradient_.cwiseProduct(
+        value()->unaryExpr([](double x) {
+            return static_cast<double>(x > 0);
+          }));
   }
 };
 

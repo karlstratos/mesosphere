@@ -22,6 +22,7 @@ class Feedforward {
   autodiff::Input *W() { return W_; }
   autodiff::Input *b() { return b_; }
   std::string function() const { return function_; }
+
  private:
   Eigen::MatrixXd W_value_;
   Eigen::MatrixXd b_value_;

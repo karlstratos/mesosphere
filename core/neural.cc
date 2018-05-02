@@ -4,15 +4,15 @@
 
 namespace neural {
 
-Feedforward::Feedforward(size_t dim_input, size_t dim_output,
+Feedforward::Feedforward(size_t dim_output, size_t dim_input,
                          std::string function,
                          std::vector<autodiff::Input *> *inputs)
     : function_(function) {
   W_value_ = util_eigen::initialize(dim_output, dim_input, "xavier");
   b_value_ = util_eigen::initialize(dim_output, 1, "xavier");
-  W_ = new autodiff::Input("<W>", &W_value_);
-  b_ = new autodiff::Input("<b>", &b_value_);
+  W_ = new autodiff::Input("W" + std::to_string(inputs->size() + 1), &W_value_);
   inputs->push_back(W_);
+  b_ = new autodiff::Input("b" + std::to_string(inputs->size() + 1), &b_value_);
   inputs->push_back(b_);
 }
 
@@ -24,6 +24,8 @@ autodiff::Variable *Feedforward::Transform(autodiff::Variable *X) {
     H =  new autodiff::Tanh(WX_b);
   } else if (function_ == "logistic") {
     H =  new autodiff::Logistic(WX_b);
+  } else if (function_ == "relu") {
+    H =  new autodiff::ReLU(WX_b);
   } else if (function_ == "identity") {
     H =  WX_b;
   } else {
