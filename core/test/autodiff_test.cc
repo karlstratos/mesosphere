@@ -5,18 +5,19 @@
 #include "../autodiff.h"
 
 TEST(Add, Test1) {
+  std::vector<autodiff::Input *> inputs;
   Eigen::MatrixXd x_value(1, 1);
   Eigen::MatrixXd y_value(1, 1);
   x_value << 1.0;
   y_value << 2.0;
-  autodiff::Input *x = new autodiff::Input("x", &x_value);
-  autodiff::Input *y = new autodiff::Input("y", &y_value);
-  autodiff::Add *z = new autodiff::Add("z", x, y);
-  autodiff::Add *q = new autodiff::Add("q", z, x);
-  autodiff::Add *l = new autodiff::Add("l", q, q);
-  autodiff::Add *m = new autodiff::Add("m", y, y);
-  autodiff::Add *n = new autodiff::Add("n", m, y);
-  autodiff::Add *o = new autodiff::Add("o", l, n);
+  autodiff::Input *x = new autodiff::Input("x", &x_value, &inputs);
+  autodiff::Input *y = new autodiff::Input("y", &y_value, &inputs);
+  autodiff::Add *z = new autodiff::Add(x, y);
+  autodiff::Add *q = new autodiff::Add(z, x);
+  autodiff::Add *l = new autodiff::Add(q, q);
+  autodiff::Add *m = new autodiff::Add(y, y);
+  autodiff::Add *n = new autodiff::Add(m, y);
+  autodiff::Add *o = new autodiff::Add(l, n);
 
   // x=1_______     __
   //    \      \   /  \
@@ -31,6 +32,10 @@ TEST(Add, Test1) {
   EXPECT_EQ(4.0, (*x->gradient())(0));
   EXPECT_EQ(5.0, (*y->gradient())(0));
 
+  EXPECT_EQ(2, inputs.size());
+  EXPECT_EQ(4, (*inputs[0]->gradient())(0));
+  EXPECT_EQ(5, (*inputs[1]->gradient())(0));
+
   o->DeleteThisUniqueSink();
 }
 
@@ -38,15 +43,15 @@ TEST(Add, Test2) {
   Eigen::MatrixXd x_value(1, 1);
   x_value << 1.0;
   autodiff::Input *x = new autodiff::Input("x", &x_value);
-  autodiff::Add *u1 = new autodiff::Add("u1", x, x);
-  autodiff::Add *u2 = new autodiff::Add("u2", x, u1);
-  autodiff::Add *u3 = new autodiff::Add("u3", u2, x);
-  autodiff::Add *d1 = new autodiff::Add("d1", x, x);
-  autodiff::Add *d2 = new autodiff::Add("d2", x, d1);
-  autodiff::Add *y = new autodiff::Add("y", u3, d2);
-  autodiff::Add *t = new autodiff::Add("t", u3, y);
-  autodiff::Add *q = new autodiff::Add("q", y, u3);
-  autodiff::Add *z = new autodiff::Add("z", t, q);
+  autodiff::Add *u1 = new autodiff::Add(x, x);
+  autodiff::Add *u2 = new autodiff::Add(x, u1);
+  autodiff::Add *u3 = new autodiff::Add(u2, x);
+  autodiff::Add *d1 = new autodiff::Add(x, x);
+  autodiff::Add *d2 = new autodiff::Add(x, d1);
+  autodiff::Add *y = new autodiff::Add(u3, d2);
+  autodiff::Add *t = new autodiff::Add(u3, y);
+  autodiff::Add *q = new autodiff::Add(y, u3);
+  autodiff::Add *z = new autodiff::Add(t, q);
 
   //                                 z=22
   //                                |  \
@@ -76,8 +81,8 @@ TEST(Add, MatrixVector) {
   y_value << -1;
   autodiff::Input *x = new autodiff::Input("x", &x_value);
   autodiff::Input *y = new autodiff::Input("y", &y_value);
-  autodiff::Add *z = new autodiff::Add("z", x, y);  // [1 2 3] + [-1] = [0 1 2]
-  autodiff::ReduceSum *l = new autodiff::ReduceSum("l", z);
+  autodiff::Add *z = new autodiff::Add(x, y);  // [1 2 3] + [-1] = [0 1 2]
+  autodiff::ReduceSum *l = new autodiff::ReduceSum(z);
 
   l->ForwardBackward();
 
@@ -94,7 +99,7 @@ TEST(ReduceSum, Test) {
   Eigen::MatrixXd x_value(2, 3);
   x_value << 1, 2, 3, 4, 5, 6;
   autodiff::Input *x = new autodiff::Input("x", &x_value);
-  autodiff::ReduceSum *z = new autodiff::ReduceSum("z", x);
+  autodiff::ReduceSum *z = new autodiff::ReduceSum(x);
 
   z->ForwardBackward();
 
@@ -114,11 +119,11 @@ TEST(Multiply, Test) {
   y_value << 3.0;
   autodiff::Input *x = new autodiff::Input("x", &x_value);
   autodiff::Input *y = new autodiff::Input("y", &y_value);
-  autodiff::Multiply *z = new autodiff::Multiply("z", x, y);
-  autodiff::Multiply *l = new autodiff::Multiply("l", z, z);
-  autodiff::Multiply *t = new autodiff::Multiply("t", l, x);
-  autodiff::Multiply *r = new autodiff::Multiply("r", x, l);
-  autodiff::Multiply *q = new autodiff::Multiply("q", r, t);  // x^6 y^4
+  autodiff::Multiply *z = new autodiff::Multiply(x, y);
+  autodiff::Multiply *l = new autodiff::Multiply(z, z);
+  autodiff::Multiply *t = new autodiff::Multiply(l, x);
+  autodiff::Multiply *r = new autodiff::Multiply(x, l);
+  autodiff::Multiply *q = new autodiff::Multiply(r, t);  // x^6 y^4
 
   std::vector<autodiff::Variable *> topological_ordering = q->ForwardBackward();
 
@@ -138,7 +143,7 @@ TEST(Dot, ColumnColumn) {
 
   autodiff::Input *x = new autodiff::Input("x", &x_value);
   autodiff::Input *y = new autodiff::Input("y", &y_value);
-  autodiff::Dot *z = new autodiff::Dot("z", x, y);
+  autodiff::Dot *z = new autodiff::Dot(x, y);
 
   z->ForwardBackward();
 
@@ -159,7 +164,7 @@ TEST(Dot, ColumnRow) {
 
   autodiff::Input *x = new autodiff::Input("x", &x_value);
   autodiff::Input *y = new autodiff::Input("y", &y_value);
-  autodiff::Dot *z = new autodiff::Dot("z", x, y);
+  autodiff::Dot *z = new autodiff::Dot(x, y);
 
   z->ForwardBackward();
 
@@ -180,7 +185,7 @@ TEST(Dot, RowColumn) {
 
   autodiff::Input *x = new autodiff::Input("x", &x_value);
   autodiff::Input *y = new autodiff::Input("y", &y_value);
-  autodiff::Dot *z = new autodiff::Dot("z", x, y);
+  autodiff::Dot *z = new autodiff::Dot(x, y);
 
   z->ForwardBackward();
 
@@ -201,7 +206,7 @@ TEST(Dot, RowRow) {
 
   autodiff::Input *x = new autodiff::Input("x", &x_value);
   autodiff::Input *y = new autodiff::Input("y", &y_value);
-  autodiff::Dot *z = new autodiff::Dot("z", x, y);
+  autodiff::Dot *z = new autodiff::Dot(x, y);
 
   z->ForwardBackward();
 
@@ -222,7 +227,7 @@ TEST(Dot, ScalarScalar) {
 
   autodiff::Input *x = new autodiff::Input("x", &x_value);
   autodiff::Input *y = new autodiff::Input("y", &y_value);
-  autodiff::Dot *z = new autodiff::Dot("z", x, y);
+  autodiff::Dot *z = new autodiff::Dot(x, y);
 
   z->ForwardBackward();
 
@@ -240,14 +245,14 @@ TEST(AddMultiplyDotFlipSign, Test) {
   y_value << 3.0, 4.0;
   autodiff::Input *x = new autodiff::Input("x", &x_value);
   autodiff::Input *y = new autodiff::Input("y", &y_value);
-  autodiff::Add *z = new autodiff::Add("z", x, y);  // x + y
-  autodiff::Add *t = new autodiff::Add("t", y, y);
+  autodiff::Add *z = new autodiff::Add(x, y);  // x + y
+  autodiff::Add *t = new autodiff::Add(y, y);
 
   // l = (x + y)^T (y + y) =  2x^T y + 2y^T y
-  autodiff::Dot *l = new autodiff::Dot("l", z, t);
+  autodiff::Dot *l = new autodiff::Dot(z, t);
 
   // p = - 2x^T y - 2y^T y
-  autodiff::FlipSign *p = new autodiff::FlipSign("p", l);
+  autodiff::FlipSign *p = new autodiff::FlipSign(l);
 
   p->ForwardBackward();
 
@@ -268,8 +273,8 @@ TEST(Logistic, Test) {
   Eigen::MatrixXd x_value(1, 1);
   x_value << 1.0;
   autodiff::Input *x = new autodiff::Input("x", &x_value);
-  autodiff::Add *y = new autodiff::Add("y", x, x);
-  autodiff::Logistic *z = new autodiff::Logistic("z", y);
+  autodiff::Add *y = new autodiff::Add(x, x);
+  autodiff::Logistic *z = new autodiff::Logistic(y);
 
   z->ForwardBackward();
 
@@ -283,8 +288,8 @@ TEST(Tanh, Test) {
   Eigen::MatrixXd x_value(1, 1);
   x_value << 1.0;
   autodiff::Input *x = new autodiff::Input("x", &x_value);
-  autodiff::Add *y = new autodiff::Add("y", x, x);
-  autodiff::Tanh *z = new autodiff::Tanh("z", y);
+  autodiff::Add *y = new autodiff::Add(x, x);
+  autodiff::Tanh *z = new autodiff::Tanh(y);
 
   // z = tanh(2x)
   // dz/dx = 2 (1 - tanh(2x)^2)
@@ -300,9 +305,9 @@ TEST(SoftmaxPick, Test) {
   Eigen::MatrixXd x_value(3, 2);
   x_value << 1, 1, 2, 2, 3, 3;
   autodiff::Input *x = new autodiff::Input("x", &x_value);
-  autodiff::Softmax *y = new autodiff::Softmax("y", x);
-  autodiff::Pick *z = new autodiff::Pick("z", y, {1, 2});
-  autodiff::ReduceSum *l = new autodiff::ReduceSum("l", z);
+  autodiff::Softmax *y = new autodiff::Softmax(x);
+  autodiff::Pick *z = new autodiff::Pick(y, {1, 2});
+  autodiff::ReduceSum *l = new autodiff::ReduceSum(z);
 
   l->ForwardBackward();
 
@@ -327,8 +332,8 @@ TEST(PickNegativeLogSoftmax, Test) {
   x_value << 1, 1, 2, 2, 3, 3;
   autodiff::Input *x = new autodiff::Input("x", &x_value);
   autodiff::PickNegativeLogSoftmax *z
-      = new autodiff::PickNegativeLogSoftmax("x", x, {1, 2});
-  autodiff::ReduceSum *l = new autodiff::ReduceSum("l", z);
+      = new autodiff::PickNegativeLogSoftmax(x, {1, 2});
+  autodiff::ReduceSum *l = new autodiff::ReduceSum(z);
 
   l->ForwardBackward();
 

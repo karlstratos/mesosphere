@@ -4,6 +4,12 @@
 
 namespace autodiff {
 
+Eigen::MatrixXd Variable::Forward() {
+  std::vector<Variable *> topological_ordering;
+  Forward(&topological_ordering);
+  return *value();
+}
+
 void Variable::Backward(const std::vector<Variable *> &topological_ordering) {
   ASSERT(value_.rows() != 0, "Forward has not been called");
   ASSERT(value_.rows() == 1 && value_.cols() == 1, "Backward on a non-scalar: "
@@ -23,9 +29,17 @@ std::vector<Variable *> Variable::ForwardBackward() {
   return topological_ordering;
 }
 
-Input::Input(std::string name, Eigen::MatrixXd *input) : Variable(name) {
-  input_ = input;
-  gradient_ = Eigen::MatrixXd::Zero(input->rows(), input->cols());
+Input::Input(std::string name, Eigen::MatrixXd *input_value) : Variable(name) {
+  input_value_ = input_value;
+  gradient_ = Eigen::MatrixXd::Zero(input_value->rows(), input_value->cols());
+}
+
+Input::Input(std::string name, Eigen::MatrixXd *input_value,
+             std::vector<Input *> *inputs, bool frozen) : Variable(name),
+                                                          frozen_(frozen) {
+  input_value_ = input_value;
+  inputs->push_back(this);
+  gradient_ = Eigen::MatrixXd::Zero(input_value->rows(), input_value->cols());
 }
 
 void Input::Forward(std::vector<Variable *> *topological_ordering) {
@@ -34,7 +48,7 @@ void Input::Forward(std::vector<Variable *> *topological_ordering) {
   called_forward_ = true;
 }
 
-Add::Add(std::string name, Variable *X, Variable *Y) : Variable(name) {
+Add::Add(Variable *X, Variable *Y) : Variable(X->name() + " + " + Y->name()) {
   AddParent(X);
   AddParent(Y);
   gradient_ = Eigen::MatrixXd::Zero(X->NumRows(), X->NumColumns());
@@ -65,7 +79,7 @@ void Add::PropagateGradient() {
                             gradient_;
 }
 
-ReduceSum::ReduceSum(std::string name, Variable *X) : Variable(name) {
+ReduceSum::ReduceSum(Variable *X) : Variable("sum(" + X->name() + ")") {
   AddParent(X);
   gradient_ = Eigen::MatrixXd::Zero(1, 1);
 }
@@ -77,7 +91,7 @@ void ReduceSum::Forward(std::vector<Variable *> *topological_ordering) {
   topological_ordering->push_back(this);
 }
 
-ReduceAverage::ReduceAverage(std::string name, Variable *X) : Variable(name) {
+ReduceAverage::ReduceAverage(Variable *X) : Variable("avg(" + X->name() + ")") {
   AddParent(X);
   gradient_ = Eigen::MatrixXd::Zero(1, 1);
 }
@@ -89,8 +103,8 @@ void ReduceAverage::Forward(std::vector<Variable *> *topological_ordering) {
   topological_ordering->push_back(this);
 }
 
-Multiply::Multiply(std::string name, Variable *X, Variable *Y)
-    : Variable(name) {
+Multiply::Multiply(Variable *X, Variable *Y)
+    : Variable(X->name() + " * " + Y->name()) {
   AddParent(X);
   AddParent(Y);
   gradient_ = Eigen::MatrixXd::Zero(X->NumRows(), Y->NumColumns());
@@ -109,7 +123,8 @@ void Multiply::PropagateGradient() {
   *Parent(1)->gradient() += Parent(0)->value()->transpose() * gradient_;
 }
 
-Dot::Dot(std::string name, Variable *X, Variable *Y) : Variable(name) {
+Dot::Dot(Variable *X, Variable *Y) : Variable("dot(" + X->name() + ", "
+                                              + Y->name() +")") {
   ASSERT(std::min(X->NumRows(), X->NumColumns()) == 1 &&
          std::min(Y->NumRows(), Y->NumColumns()) == 1 &&
          std::max(X->NumRows(),
@@ -151,7 +166,7 @@ void Dot::PropagateGradient() {
   }
 }
 
-FlipSign::FlipSign(std::string name, Variable *X) : Variable(name) {
+FlipSign::FlipSign(Variable *X) : Variable("-" + X->name()) {
   AddParent(X);
   gradient_ = Eigen::MatrixXd::Zero(X->NumRows(), X->NumColumns());
 }
@@ -163,7 +178,7 @@ void FlipSign::Forward(std::vector<Variable *> *topological_ordering) {
   topological_ordering->push_back(this);
 }
 
-Transpose::Transpose(std::string name, Variable *X) : Variable(name) {
+Transpose::Transpose(Variable *X) : Variable(X->name() + "^T") {
   AddParent(X);
   gradient_ = Eigen::MatrixXd::Zero(X->NumColumns(), X->NumRows());
 }
@@ -175,7 +190,7 @@ void Transpose::Forward(std::vector<Variable *> *topological_ordering) {
   topological_ordering->push_back(this);
 }
 
-Logistic::Logistic(std::string name, Variable *X) : Variable(name) {
+Logistic::Logistic(Variable *X) : Variable("logistic(" + X->name() + ")") {
   AddParent(X);
   gradient_ = Eigen::MatrixXd::Zero(X->NumRows(), X->NumColumns());
 }
@@ -188,7 +203,7 @@ void Logistic::Forward(std::vector<Variable *> *topological_ordering) {
   topological_ordering->push_back(this);
 }
 
-Tanh::Tanh(std::string name, Variable *X) : Variable(name) {
+Tanh::Tanh(Variable *X) : Variable("tanh(" + X->name() + ")") {
   AddParent(X);
   gradient_ = Eigen::MatrixXd::Zero(X->NumRows(), X->NumColumns());
 }
@@ -200,7 +215,7 @@ void Tanh::Forward(std::vector<Variable *> *topological_ordering) {
   topological_ordering->push_back(this);
 }
 
-Softmax::Softmax(std::string name, Variable *X) : Variable(name) {
+Softmax::Softmax(Variable *X) : Variable("softmax(" + X->name() + ")") {
   AddParent(X);
   gradient_ = Eigen::MatrixXd::Zero(X->NumRows(), X->NumColumns());
 }
@@ -217,8 +232,10 @@ void Softmax::PropagateGradient() {
   *Parent(0)->gradient() += A - value_ * A.colwise().sum().asDiagonal();
 }
 
-Pick::Pick(std::string name, Variable *X, const std::vector<size_t> &indices)
-    : Variable(name), indices_(indices) {
+Pick::Pick(Variable *X, const std::vector<size_t> &indices)
+    : Variable("pick(" + X->name() + ", [" +
+               util_string::convert_to_string(indices) + "]"),
+      indices_(indices) {
   ASSERT(X->NumColumns() == indices.size(), "X " << X->Shape()
          << " vs # " << indices.size());
   AddParent(X);
@@ -242,10 +259,12 @@ void Pick::PropagateGradient() {
   }
 }
 
-PickNegativeLogSoftmax::PickNegativeLogSoftmax(std::string name, Variable *X,
+PickNegativeLogSoftmax::PickNegativeLogSoftmax(Variable *X,
                                                const std::vector<size_t>
                                                &indices)
-    : Variable(name), indices_(indices) {
+    : Variable("pnls(" + X->name() + ", [" +
+               util_string::convert_to_string(indices) + "]"),
+      indices_(indices) {
   ASSERT(X->NumColumns() == indices_.size(), "X Shape: " << X->Shape()
          << ", # indices: " << indices.size());
   AddParent(X);

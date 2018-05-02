@@ -24,6 +24,7 @@ class Variable: public graph::Node {
 
   // Calculates value from parents, pushes to ordering (one-time calculation).
   virtual void Forward(std::vector<Variable *> *topological_ordering) = 0;
+  Eigen::MatrixXd Forward();  // Want only values, won't compute gradients.
 
   // Propagates gradient (assumed complete) to parents by the chain rule.
   virtual void PropagateGradient() = 0;
@@ -60,23 +61,31 @@ class Variable: public graph::Node {
 // X
 class Input: public Variable {
  public:
-  Input(std::string name, Eigen::MatrixXd *input);
+  Input(std::string name, Eigen::MatrixXd *input_value);
+  Input(std::string name, Eigen::MatrixXd *input_value,
+        std::vector<Input *> *inputs, bool frozen=false);
+
   void Forward(std::vector<Variable *> *topological_ordering) override;
   void PropagateGradient() override { }
-  void set_input(Eigen::MatrixXd *input) { input_ = input; }
+  void set_input_value(Eigen::MatrixXd *input_value) {
+    input_value_ = input_value;
+  }
+  void set_frozen(bool frozen) { frozen_ = frozen; }
 
   // Overrides value() so that it points to the external value it's hooked on.
-  Eigen::MatrixXd *value() override { return input_; }
+  Eigen::MatrixXd *value() override { return input_value_; }
+  bool frozen() { return frozen_; }
  protected:
-  Eigen::MatrixXd *input_;  // Pointer to input value.
+  Eigen::MatrixXd *input_value_;  // Pointer to input value.
   bool called_forward_ = false;
+  bool frozen_ = false;
 };
 
 // X + Y
 class Add: public Variable {
  public:
   // If X is a non-vector and Y is a vector, assume X + [Y ... Y].
-  Add(std::string name, Variable *X, Variable *Y);
+  Add(Variable *X, Variable *Y);
   void Forward(std::vector<Variable *> *topological_ordering) override;
   void PropagateGradient() override;
  protected:
@@ -86,7 +95,7 @@ class Add: public Variable {
 // sum_i X_i
 class ReduceSum: public Variable {
  public:
-  ReduceSum(std::string name, Variable *X);
+  ReduceSum(Variable *X);
   void Forward(std::vector<Variable *> *topological_ordering) override;
   void PropagateGradient() override {
     Parent(0)->gradient()->array() += gradient_(0);
@@ -96,7 +105,7 @@ class ReduceSum: public Variable {
 // (1/n) sum_i X_i
 class ReduceAverage: public Variable {
  public:
-  ReduceAverage(std::string name, Variable *X);
+  ReduceAverage(Variable *X);
   void Forward(std::vector<Variable *> *topological_ordering) override;
   void PropagateGradient() override {
     Parent(0)->gradient()->array() += gradient_(0) / Parent(0)->value()->size();
@@ -106,7 +115,7 @@ class ReduceAverage: public Variable {
 // X * Y
 class  Multiply: public Variable {
  public:
-  Multiply(std::string name, Variable *X, Variable *Y);
+  Multiply(Variable *X, Variable *Y);
   void Forward(std::vector<Variable *> *topological_ordering) override;
   void PropagateGradient() override;
 };
@@ -115,7 +124,7 @@ class  Multiply: public Variable {
 class Dot: public Variable {
  public:
   // X and Y can be either row or column.
-  Dot(std::string name, Variable *X, Variable *Y);
+  Dot(Variable *X, Variable *Y);
   void Forward(std::vector<Variable *> *topological_ordering) override;
   void PropagateGradient() override;
 };
@@ -123,7 +132,7 @@ class Dot: public Variable {
 // -X
 class FlipSign: public Variable {
  public:
-  FlipSign(std::string name, Variable *X);
+  FlipSign(Variable *X);
   void Forward(std::vector<Variable *> *topological_ordering) override;
   void PropagateGradient() override { *Parent(0)->gradient() -= gradient_; }
 };
@@ -131,7 +140,7 @@ class FlipSign: public Variable {
 // X^T
 class Transpose: public Variable {
  public:
-  Transpose(std::string name, Variable *X);
+  Transpose(Variable *X);
   void Forward(std::vector<Variable *> *topological_ordering) override;
   void PropagateGradient() override {
     *Parent(0)->gradient() += gradient_.transpose();
@@ -141,7 +150,7 @@ class Transpose: public Variable {
 // 1 / (1 + exp(-x)): element-wise
 class Logistic: public Variable {
  public:
-  Logistic(std::string name, Variable *X);
+  Logistic(Variable *X);
   void Forward(std::vector<Variable *> *topological_ordering) override;
   void PropagateGradient() override {
     *Parent(0)->gradient() += gradient_.cwiseProduct(
@@ -152,7 +161,7 @@ class Logistic: public Variable {
 // tanh(x): element-wise
 class Tanh: public Variable {
  public:
-  Tanh(std::string name, Variable *X);
+  Tanh(Variable *X);
   void Forward(std::vector<Variable *> *topological_ordering) override;
   void PropagateGradient() override {
     *Parent(0)->gradient() += gradient_.cwiseProduct(
@@ -163,7 +172,7 @@ class Tanh: public Variable {
 // softmax(x): column-wise
 class Softmax: public Variable {
  public:
-  Softmax(std::string name, Variable *X);
+  Softmax(Variable *X);
   void Forward(std::vector<Variable *> *topological_ordering) override;
   void PropagateGradient() override;
 };
@@ -171,7 +180,7 @@ class Softmax: public Variable {
 // x_l: column-wise
 class Pick: public Variable {
  public:
-  Pick(std::string name, Variable *X, const std::vector<size_t> &indices);
+  Pick(Variable *X, const std::vector<size_t> &indices);
   void Forward(std::vector<Variable *> *topological_ordering) override;
   void PropagateGradient() override;
  protected:
@@ -181,13 +190,40 @@ class Pick: public Variable {
 // - log [softmax(x)]_l: column-wise
 class PickNegativeLogSoftmax: public Variable {
  public:
-  PickNegativeLogSoftmax(std::string name, Variable *X,
-                         const std::vector<size_t> &indices);
+  PickNegativeLogSoftmax(Variable *X, const std::vector<size_t> &indices);
   void Forward(std::vector<Variable *> *topological_ordering) override;
   void PropagateGradient() override;
  protected:
   std::vector<size_t> indices_;
   Eigen::MatrixXd softmax_cache_;
+};
+
+// Abstract class: different updating schemes for input values.
+class Updater {
+ public:
+  Updater(const std::vector<Input *> &inputs)
+      : inputs_(inputs) { }
+  virtual ~Updater() { }
+  virtual void Update() = 0;
+  double step_size() { return step_size_; }
+  void set_step_size(double step_size) { step_size_ = step_size; }
+
+ protected:
+  std::vector<Input *> inputs_;
+  double step_size_;
+};
+
+// Simple gradient descent.
+class SimpleUpdater: public Updater {
+ public:
+  SimpleUpdater(const std::vector<Input *> &inputs, double step_size = 20.0)
+      : Updater(inputs) { step_size_ = step_size; }
+
+  void Update() override {
+    for (Input *X : inputs_) {
+      if (!X->frozen()) { *X->value() -= step_size_ * *X->gradient(); }
+    }
+  }
 };
 
 }  // namespace autodiff

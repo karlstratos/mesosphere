@@ -26,11 +26,14 @@ namespace graph {
 //        (or explicitly delete the list of nodes created yourself)
 class Node {
  public:
+  Node() { }
   Node(std::string name) : name_(name) { }
   virtual ~Node() { }
 
   void DeleteThisUniqueSink() { DeleteUniqueSink(this); }
+  void DeleteThisUniqueSinkExceptRoots() { DeleteUniqueSinkExceptRoots(this); }
   void DeleteThisTreeRoot() { DeleteTreeRoot(this); }
+  void Clear();
 
   void AddParent(Node *parent);
   void AddChild(Node *child);
@@ -59,6 +62,7 @@ class Node {
 
  private:
   void DeleteUniqueSink(Node *unique_sink);
+  void DeleteUniqueSinkExceptRoots(Node *unique_sink);
   void DeleteTreeRoot(Node *tree_root);
 };
 

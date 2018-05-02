@@ -9,6 +9,14 @@
 
 namespace graph {
 
+void Node::Clear() {
+  name_ = "";
+  parents_.resize(0);
+  children_.resize(0);
+  index_as_parent_.resize(0);
+  index_as_child_.resize(0);
+}
+
 void Node::AddParent(Node *parent) {
   parents_.push_back(parent);
   parent->children_.push_back(this);
@@ -48,6 +56,20 @@ void Node::DeleteUniqueSink(Node *unique_sink) {
   }
   for (size_t i = 0; i < unique_sink->NumChildren(); ++i) {
     // Disqualify the node as a parent.
+    unique_sink->Child(i)->parents_[unique_sink->index_as_parent_[i]] = nullptr;
+  }
+  delete unique_sink;
+}
+
+void Node::DeleteUniqueSinkExceptRoots(Node *unique_sink) {
+  if (unique_sink->IsRoot()) {
+    unique_sink->Clear();
+    return;
+  }
+  for (Node *parent : unique_sink->parents_) {
+    if (parent != nullptr) { DeleteUniqueSinkExceptRoots(parent); }
+  }
+  for (size_t i = 0; i < unique_sink->NumChildren(); ++i) {
     unique_sink->Child(i)->parents_[unique_sink->index_as_parent_[i]] = nullptr;
   }
   delete unique_sink;
