@@ -23,7 +23,7 @@ class Variable: public dag::Node {
   Variable() : dag::Node() { }
   Variable(std::string name) : dag::Node(name) { }
 
-  // Binary operators
+  //------- binary operators ---------------------------------------------------
   friend std::shared_ptr<Variable> operator+(std::shared_ptr<Variable> X,
                                              std::shared_ptr<Variable> Y);
   friend std::shared_ptr<Variable> operator-(std::shared_ptr<Variable> X,
@@ -38,8 +38,10 @@ class Variable: public dag::Node {
                                              double scalar_value) {
     return X + (-scalar_value);
   }
+  // X * Y: linear algebraic matrix-matrix multiplication
   friend std::shared_ptr<Variable> operator*(std::shared_ptr<Variable> X,
                                              std::shared_ptr<Variable> Y);
+  // X % Y: element-wise multiplication
   friend std::shared_ptr<Variable> operator%(std::shared_ptr<Variable> X,
                                              std::shared_ptr<Variable> Y);
   friend std::shared_ptr<Variable> operator*(std::shared_ptr<Variable> X,
@@ -52,18 +54,22 @@ class Variable: public dag::Node {
                                              double scalar_value) {
     return X * (1.0 / scalar_value);
   }
+  // X & Y: vertical concatenation
   friend std::shared_ptr<Variable> operator&(std::shared_ptr<Variable> X,
                                              std::shared_ptr<Variable> Y);
+  // X ^ Y: horizontal concatenation
   friend std::shared_ptr<Variable> operator^(std::shared_ptr<Variable> X,
                                              std::shared_ptr<Variable> Y);
+  // dot(X, Y): column-wise dot product
   friend std::shared_ptr<Variable> dot(std::shared_ptr<Variable> X,
                                        std::shared_ptr<Variable> Y);
 
-  // Unary operators
+  //------- unary operators ----------------------------------------------------
   friend std::shared_ptr<Variable> operator-(std::shared_ptr<Variable> X);
   friend std::shared_ptr<Variable> sum(std::shared_ptr<Variable> X);
   friend std::shared_ptr<Variable> average(std::shared_ptr<Variable> X);
   friend std::shared_ptr<Variable> transpose(std::shared_ptr<Variable> X);
+  // squared_norm(X): column-wise squared norm
   friend std::shared_ptr<Variable> squared_norm(std::shared_ptr<Variable> X) {
     return dot(X, X);
   }
@@ -72,7 +78,7 @@ class Variable: public dag::Node {
   friend std::shared_ptr<Variable> relu(std::shared_ptr<Variable> X);
   friend std::shared_ptr<Variable> softmax(std::shared_ptr<Variable> X);
 
-  // Pick operators
+  //------- pick operators -----------------------------------------------------
   friend std::shared_ptr<Variable> pick(std::shared_ptr<Variable> X,
                                         const std::vector<size_t> &indices);
   friend std::shared_ptr<Variable> cross_entropy(
@@ -80,6 +86,7 @@ class Variable: public dag::Node {
   friend std::shared_ptr<Variable> binary_cross_entropy(
       std::shared_ptr<Variable> X, const std::vector<bool> &flags);
 
+  //------- class methods ------------------------------------------------------
   // Calculates value from parents, pushes to order (one-time calculation).
   virtual void Forward(std::vector<std::shared_ptr<Variable>>
                        *topological_order) = 0;
