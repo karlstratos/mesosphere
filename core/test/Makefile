@@ -17,7 +17,7 @@ ifeq ($(shell uname), Linux)
 endif
 INC = -I $(EIGEN) -isystem $(GTEST)/include
 
-TARGETS = neural_test autodiff_test graph_test util_eigen_test util_test
+TARGETS = autodiff_test dag_test util_eigen_test util_test
 ################################################################################
 
 
@@ -31,15 +31,11 @@ clean:
 	rm -rf $(BUILD) $(TARGETS) *.dSYM
 
 # Linking
-neural_test: dir $(BUILD)/neural_test.o $(BUILD)/neural.o $(BUILD)/autodiff.o \
-	$(BUILD)/graph.o $(BUILD)/gtest_main.a
-	$(CC) $(filter-out dir,$^) -o $@ $(LIB)
-
 autodiff_test: dir $(BUILD)/autodiff_test.o $(BUILD)/autodiff.o \
-	$(BUILD)/graph.o $(BUILD)/gtest_main.a
+	$(BUILD)/dag.o $(BUILD)/gtest_main.a
 	$(CC) $(filter-out dir,$^) -o $@ $(LIB)
 
-graph_test: dir $(BUILD)/graph_test.o $(BUILD)/graph.o $(BUILD)/gtest_main.a
+dag_test: dir $(BUILD)/dag_test.o $(BUILD)/dag.o $(BUILD)/gtest_main.a
 	$(CC) $(filter-out dir,$^) -o $@ $(LIB)
 
 util_eigen_test: dir $(BUILD)/util_eigen_test.o $(BUILD)/gtest_main.a
@@ -49,23 +45,16 @@ util_test: dir $(BUILD)/util_test.o $(BUILD)/gtest_main.a
 	$(CC) $(filter-out dir,$^) -o $@ $(LIB)
 
 # Compiling
-$(BUILD)/neural_test.o: neural_test.cc
-	$(CC) $(CFLAGS) $(INC) -c $< -o $@
-
-$(BUILD)/neural.o: $(CORE)/neural.* $(CORE)/autodiff.* $(CORE)/graph.* \
-	$(CORE)/util_eigen.h
-	$(CC) $(CFLAGS) $(INC) -c $< -o $@
-
 $(BUILD)/autodiff_test.o: autodiff_test.cc
 	$(CC) $(CFLAGS) $(INC) -c $< -o $@
 
-$(BUILD)/autodiff.o: $(CORE)/autodiff.* $(CORE)/graph.* $(CORE)/util_eigen.h
+$(BUILD)/autodiff.o: $(CORE)/autodiff.* $(CORE)/dag.* $(CORE)/util_eigen.h
 	$(CC) $(CFLAGS) $(INC) -c $< -o $@
 
-$(BUILD)/graph_test.o: graph_test.cc
+$(BUILD)/dag_test.o: dag_test.cc
 	$(CC) $(CFLAGS) $(INC) -c $< -o $@
 
-$(BUILD)/graph.o: $(CORE)/graph.* $(CORE)/util.h
+$(BUILD)/dag.o: $(CORE)/dag.* $(CORE)/util.h
 	$(CC) $(CFLAGS) $(INC) -c $< -o $@
 
 $(BUILD)/util_eigen_test.o: util_eigen_test.cc $(CORE)/util_eigen.h \

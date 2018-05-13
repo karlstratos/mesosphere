@@ -1,89 +1,43 @@
 // Author: Karl Stratos (me@karlstratos.com)
 
-#include "graph.h"
+#include "dag.h"
 
 #include <algorithm>
 #include <stack>
 
 #include "util.h"
 
-namespace graph {
+namespace dag {
 
-void Node::Clear() {
-  name_ = "";
-  parents_.resize(0);
-  children_.resize(0);
-  index_as_parent_.resize(0);
-  index_as_child_.resize(0);
-}
-
-void Node::AddParent(Node *parent) {
+void Node::AddParent(std::shared_ptr<Node> parent) {
   parents_.push_back(parent);
-  parent->children_.push_back(this);
+  parent->children_.push_back(shared_from_this());
 
   index_as_child_.push_back(parent->children_.size() - 1);
   parent->index_as_parent_.push_back(parents_.size() - 1);
 }
 
-void Node::AddChild(Node *child) {
+void Node::AddChild(std::shared_ptr<Node> child) {
   children_.push_back(child);
-  child->parents_.push_back(this);
+  child->parents_.push_back(shared_from_this());
 
   index_as_parent_.push_back(child->parents_.size() - 1);
   child->index_as_child_.push_back(children_.size() - 1);
 }
 
-Node *Node::Parent(size_t i) {
+std::shared_ptr<Node> Node::Parent(size_t i) {
   ASSERT(i < NumParents(), "Parent index out of bound: " << i << " / "
          << NumParents());
-  return parents_[i];
+  return parents_[i].lock();
 }
 
-Node *Node::Child(size_t i) {
+std::shared_ptr<Node> Node::Child(size_t i) {
   ASSERT(i < NumChildren(), "Children index out of bound: " << i << " / "
          << NumChildren());
   return children_[i];
 }
 
-void Node::DeleteUniqueSink(Node *unique_sink) {
-  for (Node *parent : unique_sink->parents_) {
-    // We must check if the parent has already been deleted by its other child:
-    //
-    //          x - y                * - y           Do not delete x
-    //           \ /         =>         /               again from y!
-    //            z                    z
-    if (parent != nullptr) { DeleteUniqueSink(parent); }
-  }
-  for (size_t i = 0; i < unique_sink->NumChildren(); ++i) {
-    // Disqualify the node as a parent.
-    unique_sink->Child(i)->parents_[unique_sink->index_as_parent_[i]] = nullptr;
-  }
-  delete unique_sink;
-}
-
-void Node::DeleteUniqueSinkExceptRoots(Node *unique_sink) {
-  if (unique_sink->IsRoot()) {
-    unique_sink->Clear();
-    return;
-  }
-  for (Node *parent : unique_sink->parents_) {
-    if (parent != nullptr) { DeleteUniqueSinkExceptRoots(parent); }
-  }
-  for (size_t i = 0; i < unique_sink->NumChildren(); ++i) {
-    unique_sink->Child(i)->parents_[unique_sink->index_as_parent_[i]] = nullptr;
-  }
-  delete unique_sink;
-}
-
-void Node::DeleteTreeRoot(Node *node) {
-  // In a tree, each node is the child of at exactly one node (except the root),
-  // so this bottom-up traversal will visit each node exactly once.
-  for (Node *child : node->children_) { DeleteTreeRoot(child); }
-
-  delete node;  // Not bothering to disqualify the node as a child parent.
-}
-
-void TreeNode::AddChildToTheRight(TreeNode *child) {
+void TreeNode::AddChildToTheRight(std::shared_ptr<TreeNode> child) {
   Node::AddChild(child);
 
   // Adjust the span.
@@ -102,10 +56,10 @@ void TreeNode::AddChildToTheRight(TreeNode *child) {
 
 std::vector<std::string> TreeNode::Leaves()  {
   std::vector<std::string> leaf_strings;
-  std::stack<TreeNode *> dfs_stack;  // Depth-first search (DFS)
-  dfs_stack.push(this);
+  std::stack<std::shared_ptr<TreeNode>> dfs_stack;  // Depth-first search (DFS)
+  dfs_stack.push(std::static_pointer_cast<TreeNode>(shared_from_this()));
   while (!dfs_stack.empty()) {
-    TreeNode *node = dfs_stack.top();
+    std::shared_ptr<TreeNode> node = dfs_stack.top();
     dfs_stack.pop();
     if (node->IsLeaf()) {
       leaf_strings.push_back(node->name());
@@ -135,14 +89,14 @@ std::string TreeNode::ToString() {
 
 bool TreeNode::Compare(std::string node_string) {
   TreeReader tree_reader;
-  TreeNode *node = tree_reader.CreateTreeFromTreeString(node_string);
+  std::shared_ptr<TreeNode> node \
+      = tree_reader.CreateTreeFromTreeString(node_string);
   bool is_same = Compare(node);
-  node->DeleteThisTreeRoot();
   return is_same;
 }
 
-TreeNode *TreeNode::Copy() {
-  TreeNode *new_node = new TreeNode(name_);
+std::shared_ptr<TreeNode> TreeNode::Copy() {
+  std::shared_ptr<TreeNode> new_node = std::make_shared<TreeNode>(name_);
   new_node->index_as_parent_ = index_as_parent_;
   new_node->index_as_child_ = index_as_child_;
   new_node->span_begin_ = span_begin_;
@@ -160,27 +114,28 @@ void TreeNode::SetSpan(int span_begin, int span_end) {
   span_end_ = span_end;
 }
 
-TreeNode *TreeReader::CreateTreeFromTreeString(const std::string &tree_string) {
+std::shared_ptr<TreeNode> TreeReader::CreateTreeFromTreeString(
+    const std::string &tree_string) {
   std::vector<std::string> toks = TokenizeTreeString(tree_string);
-  TreeNode *tree = CreateTreeFromTokenSequence(toks);
+  std::shared_ptr<TreeNode> tree = CreateTreeFromTokenSequence(toks);
   return tree;
 }
 
-TreeNode *TreeReader::CreateTreeFromTokenSequence(const std::vector<std::string>
-                                                  &toks) {
+std::shared_ptr<TreeNode> TreeReader::CreateTreeFromTokenSequence(
+    const std::vector<std::string> &toks) {
   size_t num_left_parentheses = 0;
   size_t num_right_parentheses = 0;
   std::string error_message =
       "Invalid tree string: " + util_string::convert_to_string(toks);
 
-  std::stack<TreeNode *> node_stack;
+  std::stack<std::shared_ptr<TreeNode>> node_stack;
   size_t leaf_num = 0;  // tracks the position of leaf nodes
   std::string open_string(1, open_char_);
   std::string close_string(1, close_char_);
   for (size_t tok_index = 0; tok_index < toks.size(); ++tok_index) {
     if (toks[tok_index] == open_string) {  // Opening
       ++num_left_parentheses;
-      TreeNode *node = new TreeNode("");  // TODO: TreeNode => Node?
+      std::shared_ptr<TreeNode> node = std::make_shared<TreeNode>();
       node_stack.push(node);
     } else if (toks[tok_index] == close_string) {  // Closing
       ++num_right_parentheses;
@@ -190,23 +145,21 @@ TreeNode *TreeReader::CreateTreeFromTokenSequence(const std::vector<std::string>
         ASSERT(tok_index == toks.size() - 1, error_message);
 
         // Corner case: singleton tree like (a).
-        TreeNode *root = node_stack.top();
+        std::shared_ptr<TreeNode> root = node_stack.top();
         if (root->max_depth() == 0) { root->SetSpan(0, 0); }
         break;
       }
 
       // Otherwise pop node, make it the next child of the top.
-      TreeNode *popped_node = node_stack.top();
+      std::shared_ptr<TreeNode> popped_node = node_stack.top();
       node_stack.pop();
       if (popped_node->name().empty()) {
         // If the child is empty, just remove it.
-        popped_node->DeleteThisTreeRoot();
         continue;
       } else {
         if (node_stack.top()->name().empty()) {
           // If the parent is empty, skip it.
-          TreeNode *parent_node = node_stack.top();
-          parent_node->DeleteThisTreeRoot();
+          std::shared_ptr<TreeNode> parent_node = node_stack.top();
           node_stack.pop();
           node_stack.push(popped_node);
         } else {
@@ -222,7 +175,8 @@ TreeNode *TreeReader::CreateTreeFromTokenSequence(const std::vector<std::string>
       } else {
         // We must have a leaf symbol: ("NP" ("DT" => ("NP" ("DT" "dog".
         // Make this a child of the node on top of the stack.
-        TreeNode *leaf = new TreeNode(toks[tok_index]);
+        std::shared_ptr<TreeNode> leaf \
+            = std::make_shared<TreeNode>(toks[tok_index]);
         leaf->SetSpan(leaf_num, leaf_num);
         node_stack.top()->AddChildToTheRight(leaf);
         ++leaf_num;
@@ -268,4 +222,4 @@ std::vector<std::string> TreeReader::TokenizeTreeString(const std::string
   return toks;
 }
 
-}  // namespace graph
+}  // namespace dag

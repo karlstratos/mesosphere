@@ -32,7 +32,7 @@ inline Eigen::MatrixXd softmax(const Eigen::MatrixXd& columns) {
 inline Eigen::MatrixXd initialize(size_t num_rows, size_t num_columns,
                                   std::string method) {
   Eigen::MatrixXd W;
-  if (method == "xavier") {
+  if (method == "unit-variance") {
     W = sqrt(3.0 / num_columns) * Eigen::MatrixXd::Random(num_rows,
                                                           num_columns);
   } else {

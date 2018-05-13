@@ -1,3 +1,6 @@
+// Note: Somewhat stale in light of smart pointers.
+// Virtual destructor is no longer necessary if we use shared pointers.
+
 #include <iostream>
 #include <stdlib.h>
 #include <string>

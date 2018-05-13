@@ -1,45 +1,28 @@
 // Author: Karl Stratos (me@karlstratos.com)
 //
-// Graph structures.
+// Directed acyclic graph (DAG).
 
-#ifndef GRAPH_H_
-#define GRAPH_H_
+#ifndef DAG_H_
+#define DAG_H_
 
 #include <stdlib.h>
 #include <string>
 #include <vector>
 
-namespace graph {
+namespace dag {
 
-// A Node object represents a vertex in a directed graph. It serves as a base
-// class for graph-structured classes.
-//
-//   1. It uses a *virtual* destructor so that it can be used polymorphically.
-//
-//   2. It defines recursive delete functions that will be called from derived
-//      classes. Do *not* define their own delete functions in derived classes
-//      to avoid complications with Node types.
-//
-//   3. Properly delete nodes to avoid memory leaks. For example,
-//                 (tree)   tree_root->DeleteThisTreeRoot();
-//        (connected DAG)   unique_sink->DeleteThisUniqueSink();
-//        (or explicitly delete the list of nodes created yourself)
-class Node {
+// A Node represents a vertex in a DAG. It serves as a base class for
+// DAG-structured objects like trees and computation graphs.
+class Node: public std::enable_shared_from_this<Node> {
  public:
   Node() { }
   Node(std::string name) : name_(name) { }
-  virtual ~Node() { }
 
-  void DeleteThisUniqueSink() { DeleteUniqueSink(this); }
-  void DeleteThisUniqueSinkExceptRoots() { DeleteUniqueSinkExceptRoots(this); }
-  void DeleteThisTreeRoot() { DeleteTreeRoot(this); }
-  void Clear();
+  void AddParent(std::shared_ptr<Node> parent);
+  void AddChild(std::shared_ptr<Node> child);
 
-  void AddParent(Node *parent);
-  void AddChild(Node *child);
-
-  Node *Parent(size_t i);
-  Node *Child(size_t i);
+  std::shared_ptr<Node> Parent(size_t i);
+  std::shared_ptr<Node> Child(size_t i);
 
   bool IsRoot() { return parents_.size() == 0; }
   bool IsLeaf() { return children_.size() == 0; }
@@ -50,39 +33,38 @@ class Node {
   void set_name(std::string name) { name_ = name; }
 
  protected:
-  std::string name_;  // String name of the node.
-  std::vector<Node *> parents_;  // Parent Nodes.
-  std::vector<Node *> children_;  // Children Nodes.
+  std::string name_;
+
+  // Parent owns children, child points to parents: DAG life = roots life.
+  std::vector<std::weak_ptr<Node>> parents_;
+  std::vector<std::shared_ptr<Node>> children_;
 
   // index_as_parent_[i]: j such that Child(i)->Parent(j) = this.
   std::vector<size_t> index_as_parent_;
 
   // index_as_child_[i]: j such that Parent(i)->Child(j) = this.
   std::vector<size_t> index_as_child_;
-
- private:
-  void DeleteUniqueSink(Node *unique_sink);
-  void DeleteUniqueSinkExceptRoots(Node *unique_sink);
-  void DeleteTreeRoot(Node *tree_root);
 };
 
 // A TreeNode object represents a vertex in a tree.
 class TreeNode: public Node {
  public:
+  TreeNode() : Node() { }
   TreeNode(std::string name) : Node(name) { }
-  virtual ~TreeNode() { }
 
   // Adds a child to the right.
-  void AddChildToTheRight(TreeNode *child);
+  void AddChildToTheRight(std::shared_ptr<TreeNode> child);
 
   // Returns the (only) parent of the node if there is one, otherwise nullptr.
-  TreeNode *Parent() {
+  std::shared_ptr<TreeNode> Parent() {
     return (NumParents() > 0) ?
-        static_cast<TreeNode *>(Node::Parent(0)) : nullptr;
+        std::static_pointer_cast<TreeNode>(Node::Parent(0)) : nullptr;
   }
 
   // Returns the i-th child node.
-  TreeNode *Child(size_t i) { return static_cast<TreeNode *>(Node::Child(i)); }
+  std::shared_ptr<TreeNode> Child(size_t i) {
+    return std::static_pointer_cast<TreeNode>(Node::Child(i));
+  }
 
   // Returns the number of leaves.
   size_t NumLeaves() { return span_end_ - span_begin_ + 1; }
@@ -94,13 +76,15 @@ class TreeNode: public Node {
   std::string ToString();
 
   // Compares the node with the given node.
-  bool Compare(TreeNode *node) { return (ToString() == node->ToString()); }
+  bool Compare(std::shared_ptr<TreeNode> node) {
+    return (ToString() == node->ToString());
+  }
 
   // Compares the node with the given node string (defined in tree_reader.h).
   bool Compare(std::string node_string);
 
   // Returns a copy of this node.
-  TreeNode *Copy();
+  std::shared_ptr<TreeNode> Copy();
 
   // Sets the span of the node.
   void SetSpan(int span_begin, int span_end);
@@ -134,10 +118,12 @@ class TreeReader {
   ~TreeReader() { }
 
   // Creates a tree from the given tree string.
-  TreeNode *CreateTreeFromTreeString(const std::string &tree_string);
+  std::shared_ptr<TreeNode> CreateTreeFromTreeString(const std::string
+                                                     &tree_string);
 
   // Creates a tree from the given token sequence.
-  TreeNode *CreateTreeFromTokenSequence(const std::vector<std::string> &toks);
+  std::shared_ptr<TreeNode> CreateTreeFromTokenSequence(
+      const std::vector<std::string> &toks);
 
   // Tokenizes the given tree string: "(A (BB	b2))" -> "(", "A", "(", "BB",
   // "b2", ")", ")".
@@ -152,6 +138,6 @@ class TreeReader {
   char close_char_ = ')';
 };
 
-}  // namespace graph
+}  // namespace dag
 
-#endif  // GRAPH_H_
+#endif  // DAG_H_

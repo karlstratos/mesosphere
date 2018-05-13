@@ -1,85 +1,105 @@
 // Author: Karl Stratos (me@karlstratos.com)
-//
-// ./main 42 30 0 10
 
+#include <ctime>
 #include <limits>
 #include <iostream>
 #include <stdlib.h>
 #include <string>
 #include <vector>
 
-#include "../../core/neural.h"
+#include "../../core/autodiff.h"
 
 int main (int argc, char* argv[]) {
-  size_t random_seed = std::stoi(argv[1]);
-  size_t num_epochs = std::stoi(argv[2]);
-  bool frozen = std::stoi(argv[3]);  // If frozen, difficult to learn.
-  double step_size = std::stod(argv[4]);
+  size_t random_seed = std::time(0);
+  bool use_sqerr = false;
+  size_t hdim = 8;
+  size_t num_epochs = 2000;
+  bool frozen = true;  // More difficult to learn if frozen.
+  double step_size = 0.1;
+
+  // Parse command line arguments.
+  bool display_options_and_quit = false;
+  for (int i = 1; i < argc; ++i) {
+    std::string arg = argv[i];
+    if (arg == "--seed") {
+      random_seed = std::stoi(argv[++i]);
+    } else if (arg == "--sqerr") {
+      use_sqerr = true;
+    } else if (arg == "--hdim") {
+      hdim = std::stoi(argv[++i]);
+    } else if (arg == "--epochs") {
+      num_epochs = std::stoi(argv[++i]);
+    } else if (arg == "--update") {
+      frozen = false;
+    } else if (arg == "--step") {
+      step_size = std::stod(argv[++i]);
+    } else if (arg == "--help" || arg == "-h"){
+      display_options_and_quit = true;
+    } else {
+      std::cerr << "Invalid argument \"" << arg << "\": run the command with "
+           << "-h or --help to see possible arguments." << std::endl;
+      exit(-1);
+    }
+  }
+  if (display_options_and_quit) {
+    std::cout << "--seed [" << random_seed << "]:        \t"
+         << "random seed" << std::endl;
+    std::cout << "--sqerr [" << use_sqerr << "]:        \t"
+         << "use squared error instead of cross entropy?" << std::endl;
+    std::cout << "--hdim [" << hdim << "]:        \t"
+         << "dimension of feedforward output vector" << std::endl;
+    std::cout << "--update:         \t"
+         << "update the input representation?" << std::endl;
+    std::cout << "--epochs [" << num_epochs << "]:\t"
+         << "number of epochs" << std::endl;
+    std::cout << "--step [" << step_size << "]:        \t"
+         << "step size for gradient descent" << std::endl;
+    std::cout << "--help, -h:           \t"
+         << "show options and quit?" << std::endl;
+    exit(0);
+  }
 
   std::srand(random_seed);
 
-  Eigen::MatrixXd X_value(2, 4);
-  X_value <<
-      1, 1, 0, 0,
-      1, 0, 1, 0;
-  std::vector<autodiff::Input *> inputs;
-  autodiff::Input *X = new autodiff::Input("X", &X_value, &inputs, frozen);
-  neural::Feedforward ff(2, 2, "tanh", &inputs);
-  neural::Feedforward ff2(2, 2, "identity", &inputs);
-  std::cout << "Initial X value" << std::endl;
-  std::cout << X_value << std::endl << std::endl;
-  std::cout << "Initial W1 value" << std::endl;
-  std::cout << *ff.W()->value() << std::endl << std::endl;
-  std::cout << "Initial b1 value" << std::endl;
-  std::cout << *ff.b()->value() << std::endl << std::endl;
-  std::cout << "Initial W2 value" << std::endl;
-  std::cout << *ff2.W()->value() << std::endl << std::endl;
-  std::cout << "Initial b2 value" << std::endl;
-  std::cout << *ff2.b()->value() << std::endl << std::endl;
+  autodiff::InputList inputs;
+  auto x11 = inputs.Add("x11", {{1}, {1}}, frozen);
+  auto x10 = inputs.Add("x10", {{1}, {0}}, frozen);
+  auto x01 = inputs.Add("x01", {{0}, {1}}, frozen);
+  auto x00 = inputs.Add("x00", {{0}, {0}}, frozen);
+  auto Y = inputs.Add("Y", {{0, 1, 1, 0}}, true);  // Frozen label for l2
 
-  autodiff::SimpleUpdater gd(inputs, step_size);
+  auto W1 = inputs.Add("W1", hdim, 2, "unit-variance");
+  auto b1 = inputs.Add("b1", hdim, 1, "unit-variance");
+  auto W2 = inputs.Add("W2", 1, hdim, "unit-variance");
+  auto b2 = inputs.Add("b2", 1, 1, "unit-variance");
+  autodiff::SimpleGradientDescent gd(&inputs, step_size);
 
   double loss = -std::numeric_limits<double>::infinity();
   for (size_t epoch_num = 1; epoch_num <= num_epochs; ++epoch_num) {
-    autodiff::Variable *Z = ff.Transform(X);
-    autodiff::Variable *H = ff2.Transform(Z);
-    autodiff::Variable *l =
-        neural::average_negative_log_likelihood(H, {0, 1, 1, 0});
-    l->ForwardBackward();
-    double new_loss = (*l->value())(0);
+    auto H = W2 * tanh(W1 * (x11 ^ x10 ^ x01 ^ x00) + b1) + b2;
+    auto l = (use_sqerr) ?
+             average(squared_norm(H - Y)) :
+             average(binary_cross_entropy(H, {false, true, true, false}));
+    double new_loss = l->ForwardBackward();
     std::cout << "epoch: " << epoch_num << "     "
               << "step size: " << gd.step_size() << "     "
               << "loss: " << new_loss << std::endl;
-    gd.Update();
+    gd.UpdateValuesAndResetGradient();
     loss = new_loss;
-    l->DeleteThisUniqueSinkExceptRoots();
   }
   std::cout << std::endl;
 
-  std::cout << "X value" << std::endl;
-  std::cout << X_value << std::endl << std::endl;
-  std::cout << "W1 value" << std::endl;
-  std::cout << *ff.W()->value() << std::endl << std::endl;
-  std::cout << "b1 value" << std::endl;
-  std::cout << *ff.b()->value() << std::endl << std::endl;
-  std::cout << "W2 value" << std::endl;
-  std::cout << *ff2.W()->value() << std::endl << std::endl;
-  std::cout << "b2 value" << std::endl;
-  std::cout << *ff2.b()->value() << std::endl << std::endl;
+  auto H = W2 * tanh(W1 * (x11 ^ x10 ^ x01 ^ x00) + b1) + b2;
+  auto P = (use_sqerr) ? H : logistic(H);
+  Eigen::MatrixXd P_value = P->Forward();
 
-  autodiff::Variable *Z = ff.Transform(X);
-  autodiff::Variable *H = ff2.Transform(Z);
-  autodiff::Variable *P = new autodiff::Softmax(H);
-  Eigen::MatrixXd Y_pred = P->Forward();
-  std::cout << "estimated distributions" << std::endl;
-  std::cout << Y_pred << std::endl << std::endl;
-  std::cout << "true distributions" << std::endl;
-  Eigen::MatrixXd Y_value(2, 4);
-  Y_value <<
-      1, 0, 0, 1,
-      0, 1, 1, 0;
-  std::cout << Y_value << std::endl << std::endl;
-
-  autodiff::Variable *sink = new autodiff::ReduceSum(P);
-  sink->DeleteThisUniqueSink();
+  std::cout << "x11 value: " << x11->value()->transpose()
+            << " -> " << P_value(0) << std::endl;
+  std::cout << "x10 value: " << x10->value()->transpose()
+            << " -> " << P_value(1) << std::endl;
+  std::cout << "x01 value: " << x01->value()->transpose()
+            << " -> " << P_value(2) << std::endl;
+  std::cout << "x00 value: " << x00->value()->transpose()
+            << " -> " << P_value(3) << std::endl;
+  if (use_sqerr) { std::cout << "Y value: " << *Y->value() << std::endl; }
 }

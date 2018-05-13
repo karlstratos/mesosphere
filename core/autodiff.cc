@@ -4,72 +4,299 @@
 
 namespace autodiff {
 
+std::shared_ptr<Variable> operator+(std::shared_ptr<Variable> X,
+                                    std::shared_ptr<Variable> Y) {
+  bool matrix_vector = (X->NumColumns() != Y->NumColumns()) &&
+                       (Y->NumColumns() == 1);
+  ASSERT(X->NumRows() == Y->NumRows() && (X->NumColumns() == Y->NumColumns() ||
+                                          matrix_vector),
+         "\nX + Y: must be either matrix-matrix or matrix-vector, given\n"
+         << X->Shape() << ": X = " << X->name() << "\n"
+         << Y->Shape() << ": Y = " << Y->name());
+  auto Z = std::make_shared<Add>();
+  Z->set_name(X->name() + " + " + Y->name());
+  Z->AddParent(X);
+  Z->AddParent(Y);
+  *Z->gradient() = Eigen::MatrixXd::Zero(X->NumRows(), X->NumColumns());
+  Z->set_matrix_vector(matrix_vector);
+  return Z;
+}
+
+std::shared_ptr<Variable> operator-(std::shared_ptr<Variable> X,
+                                    std::shared_ptr<Variable> Y) {
+  bool matrix_vector = (X->NumColumns() != Y->NumColumns()) &&
+                       (Y->NumColumns() == 1);
+  ASSERT(X->NumRows() == Y->NumRows() && (X->NumColumns() == Y->NumColumns() ||
+                                          matrix_vector),
+         "\nX - Y: must be either matrix-matrix or matrix-vector, given\n"
+         << X->Shape() << ": X = " << X->name() << "\n"
+         << Y->Shape() << ": Y = " << Y->name());
+  auto Z = std::make_shared<Subtract>();
+  Z->set_name(X->name() + " - " + Y->name());
+  Z->AddParent(X);
+  Z->AddParent(Y);
+  *Z->gradient() = Eigen::MatrixXd::Zero(X->NumRows(), X->NumColumns());
+  Z->set_matrix_vector(matrix_vector);
+  return Z;
+}
+
+std::shared_ptr<Variable> operator+(std::shared_ptr<Variable> X,
+                                    double scalar_value) {
+  auto Z = std::make_shared<AddScalar>();
+  Z->set_name(X->name() + " + " + std::to_string(scalar_value));
+  Z->AddParent(X);
+  *Z->gradient() = Eigen::MatrixXd::Zero(X->NumRows(), X->NumColumns());
+  Z->set_scalar_value(scalar_value);
+  return Z;
+}
+
+std::shared_ptr<Variable> operator*(std::shared_ptr<Variable> X,
+                                    std::shared_ptr<Variable> Y) {
+  ASSERT(X->NumColumns() == Y->NumRows(),
+         "\nX * Y: dimensions do not match, given\n"
+         << X->Shape() << ": X = " << X->name() << "\n"
+         << Y->Shape() << ": Y = " << Y->name());
+  auto Z = std::make_shared<Multiply>();
+  Z->set_name(X->name() + " * " + Y->name());
+  Z->AddParent(X);
+  Z->AddParent(Y);
+  *Z->gradient() = Eigen::MatrixXd::Zero(X->NumRows(), Y->NumColumns());
+  return Z;
+}
+
+std::shared_ptr<Variable> operator%(std::shared_ptr<Variable> X,
+                                    std::shared_ptr<Variable> Y) {
+  ASSERT(X->NumRows() == Y->NumRows() && X->NumColumns() == Y->NumColumns(),
+         "\nX % Y: dimensions do not match, given\n"
+         << X->Shape() << ": X = " << X->name() << "\n"
+         << Y->Shape() << ": Y = " << Y->name());
+  auto Z = std::make_shared<MultiplyElementwise>();
+  Z->set_name(X->name() + " % " + Y->name());
+  Z->AddParent(X);
+  Z->AddParent(Y);
+  *Z->gradient() = Eigen::MatrixXd::Zero(X->NumRows(), X->NumColumns());
+  return Z;
+}
+
+std::shared_ptr<Variable> operator*(std::shared_ptr<Variable> X,
+                                    double scalar_value) {
+  auto Z = std::make_shared<MultiplyScalar>();
+  Z->set_name(X->name() + " * " + std::to_string(scalar_value));
+  Z->AddParent(X);
+  *Z->gradient() = Eigen::MatrixXd::Zero(X->NumRows(), X->NumColumns());
+  Z->set_scalar_value(scalar_value);
+  return Z;
+}
+
+std::shared_ptr<Variable> operator&(std::shared_ptr<Variable> X,
+                                    std::shared_ptr<Variable> Y) {
+  ASSERT(X->NumColumns() == Y->NumColumns(),
+         "vertical cat between X " << X->Shape() << ", Y " << Y->Shape());
+  auto Z = std::make_shared<ConcatenateVertical>();
+  Z->set_name(X->name() + " & " + Y->name());
+  Z->AddParent(X);
+  Z->AddParent(Y);
+  *Z->gradient() = Eigen::MatrixXd::Zero(X->NumRows() + Y->NumRows(),
+                                         X->NumColumns());
+  return Z;
+}
+
+std::shared_ptr<Variable> operator^(std::shared_ptr<Variable> X,
+                                    std::shared_ptr<Variable> Y) {
+  ASSERT(X->NumRows() == Y->NumRows(),
+         "horizontal cat between X " << X->Shape() << ", Y " << Y->Shape());
+  auto Z = std::make_shared<ConcatenateHorizontal>();
+  Z->set_name(X->name() + " ^ " + Y->name());
+  Z->AddParent(X);
+  Z->AddParent(Y);
+  *Z->gradient() = Eigen::MatrixXd::Zero(X->NumRows(),
+                                         X->NumColumns() + Y->NumColumns());
+  return Z;
+}
+
+std::shared_ptr<Variable> dot(std::shared_ptr<Variable> X,
+                              std::shared_ptr<Variable> Y) {
+  ASSERT(X->NumRows() == Y->NumRows() &&
+         X->NumColumns() == Y->NumColumns(),
+         "column-wise dot between X " << X->Shape() << ", Y " << Y->Shape());
+  auto Z = std::make_shared<Dot>();
+  Z->set_name("dot(" + X->name() + ", " + Y->name() +")");
+  Z->AddParent(X);
+  Z->AddParent(Y);
+  *Z->gradient() = Eigen::MatrixXd::Zero(1, X->NumColumns());
+  return Z;
+}
+
+std::shared_ptr<Variable> operator-(std::shared_ptr<Variable> X) {
+  auto Z = std::make_shared<FlipSign>();
+  Z->set_name("-" + X->name());
+  Z->AddParent(X);
+  *Z->gradient() = Eigen::MatrixXd::Zero(X->NumRows(), X->NumColumns());
+  return Z;
+}
+
+std::shared_ptr<Variable> sum(std::shared_ptr<Variable> X) {
+  auto Z = std::make_shared<ReduceSum>();
+  Z->set_name("sum(" + X->name() + ")");
+  Z->AddParent(X);
+  *Z->gradient() = Eigen::MatrixXd::Zero(1, 1);
+  return Z;
+}
+
+std::shared_ptr<Variable> average(std::shared_ptr<Variable> X) {
+  auto Z = std::make_shared<ReduceAverage>();
+  Z->set_name("average(" + X->name() + ")");
+  Z->AddParent(X);
+  *Z->gradient() = Eigen::MatrixXd::Zero(1, 1);
+  return Z;
+}
+
+std::shared_ptr<Variable> transpose(std::shared_ptr<Variable> X) {
+  auto Z = std::make_shared<Transpose>();
+  Z->set_name(X->name() + "^T");
+  Z->AddParent(X);
+  *Z->gradient() = Eigen::MatrixXd::Zero(X->NumColumns(), X->NumRows());
+  return Z;
+}
+
+std::shared_ptr<Variable> logistic(std::shared_ptr<Variable> X) {
+  auto Z = std::make_shared<Logistic>();
+  Z->set_name("logistic(" + X->name() + ")");
+  Z->AddParent(X);
+  *Z->gradient() = Eigen::MatrixXd::Zero(X->NumRows(), X->NumColumns());
+  return Z;
+}
+
+std::shared_ptr<Variable> tanh(std::shared_ptr<Variable> X) {
+  auto Z = std::make_shared<Tanh>();
+  Z->set_name("tanh(" + X->name() + ")");
+  Z->AddParent(X);
+  *Z->gradient() = Eigen::MatrixXd::Zero(X->NumRows(), X->NumColumns());
+  return Z;
+}
+
+std::shared_ptr<Variable> relu(std::shared_ptr<Variable> X) {
+  auto Z = std::make_shared<ReLU>();
+  Z->set_name("relu(" + X->name() + ")");
+  Z->AddParent(X);
+  *Z->gradient() = Eigen::MatrixXd::Zero(X->NumRows(), X->NumColumns());
+  return Z;
+}
+
+std::shared_ptr<Variable> softmax(std::shared_ptr<Variable> X) {
+  auto Z = std::make_shared<Softmax>();
+  Z->set_name("softmax(" + X->name() + ")");
+  Z->AddParent(X);
+  *Z->gradient() = Eigen::MatrixXd::Zero(X->NumRows(), X->NumColumns());
+  return Z;
+}
+
+std::shared_ptr<Variable> pick(std::shared_ptr<Variable> X,
+                               const std::vector<size_t> &indices) {
+  ASSERT(X->NumColumns() == indices.size(), "X " << X->Shape()
+         << " vs # indices " << indices.size());
+  auto Z = std::make_shared<Pick>();
+  Z->set_name("pick(" + X->name() + ", " +
+              "[" + util_string::convert_to_string(indices) + "])");
+  Z->set_indices(indices);
+  Z->AddParent(X);
+  *Z->gradient() = Eigen::MatrixXd::Zero(1, indices.size());
+  return Z;
+}
+
+std::shared_ptr<Variable> cross_entropy(
+    std::shared_ptr<Variable> X, const std::vector<size_t> &indices) {
+  ASSERT(X->NumColumns() == indices.size(), "X " << X->Shape()
+         << " vs # indices " << indices.size());
+  auto Z = std::make_shared<PickNegativeLogSoftmax>();
+  Z->set_name("cross_entropy(" + X->name() + ", " +
+              "[" + util_string::convert_to_string(indices) + "])");
+  Z->set_indices(indices);
+  Z->AddParent(X);
+  *Z->gradient() = Eigen::MatrixXd::Zero(1, indices.size());
+  return Z;
+}
+
+std::shared_ptr<Variable> binary_cross_entropy(
+    std::shared_ptr<Variable> X, const std::vector<bool> &flags) {
+  ASSERT(X->NumRows() == 1, "X not a row vector: " << X->Shape());
+  ASSERT(X->NumColumns() == flags.size(), "X " << X->Shape()
+         << " vs # flags " << flags.size());
+  auto Z = std::make_shared<FlagNegativeLogistic>();
+  Z->set_name("binary_cross_entropy(" + X->name() + ", " +
+              "[" + util_string::convert_to_string(flags) + "])");
+  Z->set_flags(flags);
+  Z->AddParent(X);
+  *Z->gradient() = Eigen::MatrixXd::Zero(1, flags.size());
+  return Z;
+}
+
 Eigen::MatrixXd Variable::Forward() {
-  std::vector<Variable *> topological_ordering;
-  Forward(&topological_ordering);
+  std::vector<std::shared_ptr<Variable>> topological_order;
+  Forward(&topological_order);
   return *value();
 }
 
-void Variable::Backward(const std::vector<Variable *> &topological_ordering) {
+void Variable::Backward(const std::vector<std::shared_ptr<Variable>>
+                        &topological_order) {
   ASSERT(value_.rows() != 0, "Forward has not been called");
   ASSERT(value_.rows() == 1 && value_.cols() == 1, "Backward on a non-scalar: "
          << util_eigen::dimension_string(value_));
   gradient_ = Eigen::MatrixXd::Ones(1, 1);  // dx/dx = 1
-  for (int i = topological_ordering.size() - 1; i >= 0; --i) {
-    // Reverse topological ordering guarantees that the variable receives all
+  for (int i = topological_order.size() - 1; i >= 0; --i) {
+    // Reverse topological order guarantees that the variable receives all
     // contributions to its gradient from children before propagating it.
-    topological_ordering.at(i)->PropagateGradient();
+    topological_order.at(i)->PropagateGradient();
   }
 }
 
-std::vector<Variable *> Variable::ForwardBackward() {
-  std::vector<Variable *> topological_ordering;
-  Forward(&topological_ordering);
-  Backward(topological_ordering);
-  return topological_ordering;
+double Variable::ForwardBackward() {
+  std::vector<std::shared_ptr<Variable>> topological_order;
+  Forward(&topological_order);
+  Backward(topological_order);
+  return value_(0);
 }
 
-Input::Input(std::string name, Eigen::MatrixXd *input_value) : Variable(name) {
-  input_value_ = input_value;
-  gradient_ = Eigen::MatrixXd::Zero(input_value->rows(), input_value->cols());
+std::shared_ptr<Input> MakeInput(const std::vector<std::vector<double>> &rows) {
+  auto X = std::make_shared<autodiff::Input>();
+  size_t num_columns = rows[0].size();
+  X->value()->resize(rows.size(), num_columns);
+  for (size_t i = 0; i < rows.size(); ++i) {
+    ASSERT(rows[i].size() == num_columns, "Wrong matrix format");
+    for (size_t j = 0; j < num_columns; ++j) {
+      (*X->value())(i, j) = rows[i][j];
+    }
+  }
+  *X->gradient() = Eigen::MatrixXd::Zero(rows.size(), num_columns);
+  X->set_frozen(true);
+  return X;
 }
 
-Input::Input(std::string name, Eigen::MatrixXd *input_value,
-             std::vector<Input *> *inputs, bool frozen) : Variable(name),
-                                                          frozen_(frozen) {
-  input_value_ = input_value;
-  inputs->push_back(this);
-  gradient_ = Eigen::MatrixXd::Zero(input_value->rows(), input_value->cols());
+std::shared_ptr<Input> MakeInput(const Eigen::MatrixXd &value) {
+  auto X = std::make_shared<autodiff::Input>();
+  *X->value() = value;
+  *X->gradient()  = Eigen::MatrixXd::Zero(value.rows(), value.cols());
+  X->set_frozen(true);
+  return X;
 }
 
-void Input::Forward(std::vector<Variable *> *topological_ordering) {
+void Input::Forward(std::vector<std::shared_ptr<Variable>> *topological_order) {
   if (called_forward_) { return; }
-  topological_ordering->push_back(this);
+  topological_order->push_back(shared_from_this());
   called_forward_ = true;
 }
 
-Add::Add(Variable *X, Variable *Y) : Variable(X->name() + " + " + Y->name()) {
-  AddParent(X);
-  AddParent(Y);
-  gradient_ = Eigen::MatrixXd::Zero(X->NumRows(), X->NumColumns());
-  if (X->NumColumns() > Y->NumColumns()) {
-    ASSERT(Y->NumColumns() == 1, "Only matrix-vector add supported, given: "
-           << X->Shape() << " + " << Y->Shape());
-    matrix_vector_ = true;
-  }
-}
-
-void Add::Forward(std::vector<Variable *> *topological_ordering) {
+void Add::Forward(std::vector<std::shared_ptr<Variable>> *topological_order) {
   if (value_.rows() > 0) { return; }
-  Parent(0)->Forward(topological_ordering);
-  Parent(1)->Forward(topological_ordering);
+  Parent(0)->Forward(topological_order);
+  Parent(1)->Forward(topological_order);
   if (matrix_vector_) {
     value_ = Parent(0)->value()->colwise() +
              static_cast<Eigen::VectorXd>(*Parent(1)->value());
   } else {
     value_ = *Parent(0)->value() + *Parent(1)->value();
   }
-  topological_ordering->push_back(this);
+  topological_order->push_back(shared_from_this());
 }
 
 void Add::PropagateGradient() {
@@ -79,43 +306,58 @@ void Add::PropagateGradient() {
                             gradient_;
 }
 
-ReduceSum::ReduceSum(Variable *X) : Variable("sum(" + X->name() + ")") {
-  AddParent(X);
-  gradient_ = Eigen::MatrixXd::Zero(1, 1);
+void AddScalar::Forward(std::vector<std::shared_ptr<Variable>>
+                        *topological_order) {
+  if (value_.rows() > 0) { return; }
+  Parent(0)->Forward(topological_order);
+  value_ = Parent(0)->value()->array() + scalar_value_;
+  topological_order->push_back(shared_from_this());
 }
 
-void ReduceSum::Forward(std::vector<Variable *> *topological_ordering) {
+void Subtract::Forward(std::vector<std::shared_ptr<Variable>>
+                       *topological_order) {
   if (value_.rows() > 0) { return; }
-  Parent(0)->Forward(topological_ordering);
+  Parent(0)->Forward(topological_order);
+  Parent(1)->Forward(topological_order);
+  if (matrix_vector_) {
+    value_ = Parent(0)->value()->colwise() -
+             static_cast<Eigen::VectorXd>(*Parent(1)->value());
+  } else {
+    value_ = *Parent(0)->value() - *Parent(1)->value();
+  }
+  topological_order->push_back(shared_from_this());
+}
+
+void Subtract::PropagateGradient() {
+  *Parent(0)->gradient() += gradient_;
+  *Parent(1)->gradient() -= (matrix_vector_) ?
+                            gradient_.rowwise().sum() :
+                            gradient_;
+}
+
+void ReduceSum::Forward(std::vector<std::shared_ptr<Variable>>
+                        *topological_order) {
+  if (value_.rows() > 0) { return; }
+  Parent(0)->Forward(topological_order);
   value_ = Eigen::MatrixXd::Constant(1, 1, Parent(0)->value()->sum());
-  topological_ordering->push_back(this);
+  topological_order->push_back(shared_from_this());
 }
 
-ReduceAverage::ReduceAverage(Variable *X) : Variable("avg(" + X->name() + ")") {
-  AddParent(X);
-  gradient_ = Eigen::MatrixXd::Zero(1, 1);
-}
-
-void ReduceAverage::Forward(std::vector<Variable *> *topological_ordering) {
+void ReduceAverage::Forward(std::vector<std::shared_ptr<Variable>>
+                            *topological_order) {
   if (value_.rows() > 0) { return; }
-  Parent(0)->Forward(topological_ordering);
+  Parent(0)->Forward(topological_order);
   value_ = Eigen::MatrixXd::Constant(1, 1, Parent(0)->value()->mean());
-  topological_ordering->push_back(this);
+  topological_order->push_back(shared_from_this());
 }
 
-Multiply::Multiply(Variable *X, Variable *Y)
-    : Variable(X->name() + " * " + Y->name()) {
-  AddParent(X);
-  AddParent(Y);
-  gradient_ = Eigen::MatrixXd::Zero(X->NumRows(), Y->NumColumns());
-}
-
-void Multiply::Forward(std::vector<Variable *> *topological_ordering) {
+void Multiply::Forward(std::vector<std::shared_ptr<Variable>>
+                       *topological_order) {
   if (value_.rows() > 0) { return; }
-  Parent(0)->Forward(topological_ordering);
-  Parent(1)->Forward(topological_ordering);
+  Parent(0)->Forward(topological_order);
+  Parent(1)->Forward(topological_order);
   value_ = *Parent(0)->value() * *Parent(1)->value();
-  topological_ordering->push_back(this);
+  topological_order->push_back(shared_from_this());
 }
 
 void Multiply::PropagateGradient() {
@@ -123,121 +365,121 @@ void Multiply::PropagateGradient() {
   *Parent(1)->gradient() += Parent(0)->value()->transpose() * gradient_;
 }
 
-Dot::Dot(Variable *X, Variable *Y) : Variable("dot(" + X->name() + ", "
-                                              + Y->name() +")") {
-  ASSERT(std::min(X->NumRows(), X->NumColumns()) == 1 &&
-         std::min(Y->NumRows(), Y->NumColumns()) == 1 &&
-         std::max(X->NumRows(),
-                  X->NumColumns()) == std::max(Y->NumRows(),
-                                               Y->NumColumns()),
-         "Dot between X " << X->Shape() << " Y: " << Y->Shape());
-  AddParent(X);
-  AddParent(Y);
-  gradient_ = Eigen::MatrixXd::Zero(1, 1);
+void MultiplyElementwise::Forward(std::vector<std::shared_ptr<Variable>>
+                                  *topological_order) {
+  if (value_.rows() > 0) { return; }
+  Parent(0)->Forward(topological_order);
+  Parent(1)->Forward(topological_order);
+  value_.array() = Parent(0)->value()->array() * Parent(1)->value()->array();
+  topological_order->push_back(shared_from_this());
 }
 
-void Dot::Forward(std::vector<Variable *> *topological_ordering) {
+void MultiplyElementwise::PropagateGradient() {
+  Parent(0)->gradient()->array() += gradient_.array() *
+                                    Parent(1)->value()->array();
+  Parent(1)->gradient()->array() += Parent(0)->value()->array() *
+                                    gradient_.array();
+}
+
+void MultiplyScalar::Forward(std::vector<std::shared_ptr<Variable>>
+                             *topological_order) {
   if (value_.rows() > 0) { return; }
-  Parent(0)->Forward(topological_ordering);
-  Parent(1)->Forward(topological_ordering);
-  if (Parent(0)->NumColumns() == 1 && Parent(1)->NumColumns() == 1) {
-    value_ = Parent(0)->value()->transpose() * *Parent(1)->value();
-  } else if (Parent(0)->NumColumns() == 1 && Parent(1)->NumRows() == 1) {
-    value_ = *Parent(1)->value() * *Parent(0)->value();
-  } else if (Parent(0)->NumRows() == 1 && Parent(1)->NumColumns() == 1) {
-    value_ = *Parent(0)->value() * *Parent(1)->value();
-  } else {  // dot(row, row)
-    value_ = *Parent(0)->value() * Parent(1)->value()->transpose();
-  }
-  topological_ordering->push_back(this);
+  Parent(0)->Forward(topological_order);
+  value_ = scalar_value_ * Parent(0)->value()->array();
+  topological_order->push_back(shared_from_this());
+}
+
+void ConcatenateVertical::Forward(std::vector<std::shared_ptr<Variable>>
+                                  *topological_order) {
+  if (value_.rows() > 0) { return; }
+  Parent(0)->Forward(topological_order);
+  Parent(1)->Forward(topological_order);
+  value_.resize(Parent(0)->NumRows() + Parent(1)->NumRows(),
+                Parent(0)->NumColumns());
+  value_ << *Parent(0)->value(), *Parent(1)->value();
+  topological_order->push_back(shared_from_this());
+}
+
+void ConcatenateVertical::PropagateGradient() {
+  *Parent(0)->gradient() += gradient_.topRows(Parent(0)->NumRows());
+  *Parent(1)->gradient() += gradient_.bottomRows(Parent(1)->NumRows());
+}
+
+void ConcatenateHorizontal::Forward(std::vector<std::shared_ptr<Variable>>
+                                    *topological_order) {
+  if (value_.rows() > 0) { return; }
+  Parent(0)->Forward(topological_order);
+  Parent(1)->Forward(topological_order);
+  value_.resize(Parent(0)->NumRows(),
+                Parent(0)->NumColumns() + Parent(1)->NumColumns());
+  value_ << *Parent(0)->value(), *Parent(1)->value();
+  topological_order->push_back(shared_from_this());
+}
+
+void ConcatenateHorizontal::PropagateGradient() {
+  *Parent(0)->gradient() += gradient_.leftCols(Parent(0)->NumColumns());
+  *Parent(1)->gradient() += gradient_.rightCols(Parent(1)->NumColumns());
+}
+
+void Dot::Forward(std::vector<std::shared_ptr<Variable>> *topological_order) {
+  if (value_.rows() > 0) { return; }
+  Parent(0)->Forward(topological_order);
+  Parent(1)->Forward(topological_order);
+  value_ = (Parent(0)->value()->transpose() * *Parent(1)->value()).diagonal();
+  topological_order->push_back(shared_from_this());
 }
 
 void Dot::PropagateGradient() {
-  if (Parent(0)->NumRows() == Parent(1)->NumRows()) {
-    *Parent(0)->gradient() +=
-        (gradient_(0) * Parent(1)->value()->array()).matrix();
-    *Parent(1)->gradient() +=
-        (gradient_(0) * Parent(0)->value()->array()).matrix();;
-  } else {
-    *Parent(0)->gradient() +=
-        (gradient_(0) * Parent(1)->value()->transpose().array()).matrix();
-    *Parent(1)->gradient() +=
-        (gradient_(0) * Parent(0)->value()->transpose().array()).matrix();
-  }
+  *Parent(0)->gradient() += *Parent(1)->value() * gradient_.asDiagonal();
+  *Parent(1)->gradient() += *Parent(0)->value() * gradient_.asDiagonal();
 }
 
-FlipSign::FlipSign(Variable *X) : Variable("-" + X->name()) {
-  AddParent(X);
-  gradient_ = Eigen::MatrixXd::Zero(X->NumRows(), X->NumColumns());
-}
-
-void FlipSign::Forward(std::vector<Variable *> *topological_ordering) {
+void FlipSign::Forward(std::vector<std::shared_ptr<Variable>>
+                       *topological_order) {
   if (value_.rows() > 0) { return; }
-  Parent(0)->Forward(topological_ordering);
+  Parent(0)->Forward(topological_order);
   value_ = - *Parent(0)->value();
-  topological_ordering->push_back(this);
+  topological_order->push_back(shared_from_this());
 }
 
-Transpose::Transpose(Variable *X) : Variable(X->name() + "^T") {
-  AddParent(X);
-  gradient_ = Eigen::MatrixXd::Zero(X->NumColumns(), X->NumRows());
-}
-
-void Transpose::Forward(std::vector<Variable *> *topological_ordering) {
+void Transpose::Forward(std::vector<std::shared_ptr<Variable>>
+                        *topological_order) {
   if (value_.rows() > 0) { return; }
-  Parent(0)->Forward(topological_ordering);
+  Parent(0)->Forward(topological_order);
   value_ = Parent(0)->value()->transpose();
-  topological_ordering->push_back(this);
+  topological_order->push_back(shared_from_this());
 }
 
-Logistic::Logistic(Variable *X) : Variable("logistic(" + X->name() + ")") {
-  AddParent(X);
-  gradient_ = Eigen::MatrixXd::Zero(X->NumRows(), X->NumColumns());
-}
-
-void Logistic::Forward(std::vector<Variable *> *topological_ordering) {
+void Logistic::Forward(std::vector<std::shared_ptr<Variable>>
+                       *topological_order) {
   if (value_.rows() > 0) { return; }
-  Parent(0)->Forward(topological_ordering);
+  Parent(0)->Forward(topological_order);
   value_ = Parent(0)->value()->unaryExpr(
       [](double x) { return 1 / (1 + exp(-x));});
-  topological_ordering->push_back(this);
+  topological_order->push_back(shared_from_this());
 }
 
-Tanh::Tanh(Variable *X) : Variable("tanh(" + X->name() + ")") {
-  AddParent(X);
-  gradient_ = Eigen::MatrixXd::Zero(X->NumRows(), X->NumColumns());
-}
-
-void Tanh::Forward(std::vector<Variable *> *topological_ordering) {
+void Tanh::Forward(std::vector<std::shared_ptr<Variable>> *topological_order) {
   if (value_.rows() > 0) { return; }
-  Parent(0)->Forward(topological_ordering);
+  Parent(0)->Forward(topological_order);
   value_ = Parent(0)->value()->array().tanh();
-  topological_ordering->push_back(this);
+  topological_order->push_back(shared_from_this());
 }
 
-ReLU::ReLU(Variable *X) : Variable("relu(" + X->name() + ")") {
-  AddParent(X);
-  gradient_ = Eigen::MatrixXd::Zero(X->NumRows(), X->NumColumns());
-}
-
-void ReLU::Forward(std::vector<Variable *> *topological_ordering) {
+void ReLU::Forward(std::vector<std::shared_ptr<Variable>> *topological_order) {
   if (value_.rows() > 0) { return; }
-  Parent(0)->Forward(topological_ordering);
+  Parent(0)->Forward(topological_order);
   value_ = Parent(0)->value()->unaryExpr(
       [](double x) { return std::max(0.0, x); });
-  topological_ordering->push_back(this);
+  topological_order->push_back(shared_from_this());
 }
 
-Softmax::Softmax(Variable *X) : Variable("softmax(" + X->name() + ")") {
-  AddParent(X);
-  gradient_ = Eigen::MatrixXd::Zero(X->NumRows(), X->NumColumns());
-}
-
-void Softmax::Forward(std::vector<Variable *> *topological_ordering) {
+void Softmax::Forward(std::vector<std::shared_ptr<Variable>>
+                      *topological_order) {
   if (value_.rows() > 0) { return; }
-  Parent(0)->Forward(topological_ordering);
+  Parent(0)->Forward(topological_order);
   value_ = util_eigen::softmax(*Parent(0)->value());
-  topological_ordering->push_back(this);
+  topological_order->push_back(shared_from_this());
 }
 
 void Softmax::PropagateGradient() {
@@ -245,25 +487,15 @@ void Softmax::PropagateGradient() {
   *Parent(0)->gradient() += A - value_ * A.colwise().sum().asDiagonal();
 }
 
-Pick::Pick(Variable *X, const std::vector<size_t> &indices)
-    : Variable("pick(" + X->name() + ", [" +
-               util_string::convert_to_string(indices) + "]"),
-      indices_(indices) {
-  ASSERT(X->NumColumns() == indices.size(), "X " << X->Shape()
-         << " vs # " << indices.size());
-  AddParent(X);
-  gradient_ = Eigen::MatrixXd::Zero(1, indices.size());
-}
-
-void Pick::Forward(std::vector<Variable *> *topological_ordering) {
+void Pick::Forward(std::vector<std::shared_ptr<Variable>> *topological_order) {
   if (value_.rows() > 0) { return; }
-  Parent(0)->Forward(topological_ordering);
+  Parent(0)->Forward(topological_order);
 
   value_.resize(1, indices_.size());
   for (size_t i = 0; i < indices_.size(); ++i) {
     value_(i) = (*Parent(0)->value())(indices_[i]);
   }
-  topological_ordering->push_back(this);
+  topological_order->push_back(shared_from_this());
 }
 
 void Pick::PropagateGradient() {
@@ -272,29 +504,17 @@ void Pick::PropagateGradient() {
   }
 }
 
-PickNegativeLogSoftmax::PickNegativeLogSoftmax(Variable *X,
-                                               const std::vector<size_t>
-                                               &indices)
-    : Variable("pnls(" + X->name() + ", [" +
-               util_string::convert_to_string(indices) + "]"),
-      indices_(indices) {
-  ASSERT(X->NumColumns() == indices_.size(), "X Shape: " << X->Shape()
-         << ", # indices: " << indices.size());
-  AddParent(X);
-  gradient_ = Eigen::MatrixXd::Zero(1, indices_.size());
-}
-
-void PickNegativeLogSoftmax::Forward(std::vector<Variable *>
-                                     *topological_ordering) {
+void PickNegativeLogSoftmax::Forward(std::vector<std::shared_ptr<Variable>>
+                                     *topological_order) {
   if (value_.rows() > 0) { return; }
-  Parent(0)->Forward(topological_ordering);
+  Parent(0)->Forward(topological_order);
   softmax_cache_ = util_eigen::softmax(*Parent(0)->value());
 
   value_.resize(1, indices_.size());
   for (size_t i = 0; i < indices_.size(); ++i) {
     value_(i) = -log(softmax_cache_(indices_[i], i));
   }
-  topological_ordering->push_back(this);
+  topological_order->push_back(shared_from_this());
 }
 
 void PickNegativeLogSoftmax::PropagateGradient() {
@@ -302,6 +522,76 @@ void PickNegativeLogSoftmax::PropagateGradient() {
     softmax_cache_(indices_[i], i) -= 1.0;
   }
   *Parent(0)->gradient() += softmax_cache_ * gradient_.asDiagonal();
+}
+
+void FlagNegativeLogistic::Forward(std::vector<std::shared_ptr<Variable>>
+                                     *topological_order) {
+  if (value_.rows() > 0) { return; }
+  Parent(0)->Forward(topological_order);
+  logistic_cache_ = Parent(0)->value()->unaryExpr(
+      [](double x) { return 1 / (1 + exp(-x)); });
+  value_.resize(1, flags_.size());
+  for (size_t i = 0; i < flags_.size(); ++i) {
+    value_(i) = (flags_[i]) ? -log(logistic_cache_(i)) :
+                -log(1 - logistic_cache_(i));
+
+  }
+  topological_order->push_back(shared_from_this());
+}
+
+void FlagNegativeLogistic::PropagateGradient() {
+  for (size_t i = 0; i < flags_.size(); ++i) {
+    if (flags_[i]) { logistic_cache_(i) -= 1.0; }
+  }
+  *Parent(0)->gradient() += logistic_cache_.cwiseProduct(gradient_);
+}
+
+std::shared_ptr<Input> InputList::Add(std::string name, size_t num_rows,
+                                      size_t num_columns,
+                                      std::string initialization_method,
+                                      bool frozen) {
+  auto X = std::make_shared<autodiff::Input>();
+  *X->value() = util_eigen::initialize(num_rows, num_columns,
+                                       initialization_method);
+  *X->gradient() = Eigen::MatrixXd::Zero(num_rows, num_columns);
+  X->set_name(name);
+  X->set_frozen(frozen);
+  list_.push_back(X);
+  return X;
+}
+
+std::shared_ptr<Input> InputList::Add(
+    std::string name, const std::vector<std::vector<double>> &rows,
+    bool frozen) {
+  size_t num_columns = rows[0].size();
+  Eigen::MatrixXd value(rows.size(), num_columns);
+  for (size_t i = 0; i < rows.size(); ++i) {
+    ASSERT(rows[i].size() == num_columns, "Wrong matrix format");
+    for (size_t j = 0; j < num_columns; ++j) { value(i, j) = rows[i][j]; }
+  }
+  return Add(name, value, frozen);
+}
+
+std::shared_ptr<Input> InputList::Add(std::string name,
+                                      const Eigen::MatrixXd &value,
+                                      bool frozen) {
+  auto X = std::make_shared<autodiff::Input>();
+  *X->value() = value;
+  *X->gradient() = Eigen::MatrixXd::Zero(value.rows(), value.cols());
+  X->set_name(name);
+  X->set_frozen(frozen);
+  list_.push_back(X);
+  return X;
+}
+
+void InputList::Clear() {
+  for (auto input : list_) { input.reset(); }
+  list_.clear();
+}
+
+void Updater::UpdateValuesAndResetGradient() {
+  UpdateValues();
+  inputs_->ResetGradient();
 }
 
 }  // namespace autodiff
