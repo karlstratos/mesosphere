@@ -12,6 +12,7 @@
 
 int main (int argc, char* argv[]) {
   size_t random_seed = std::time(0);
+  std::string updater = "sgd";
   size_t N = 10000;
   double step_size = 0.01;
 
@@ -20,6 +21,8 @@ int main (int argc, char* argv[]) {
     std::string arg = argv[i];
     if (arg == "--seed") {
       random_seed = std::stoi(argv[++i]);
+    } else if (arg == "--updater") {
+      updater = argv[++i];
     } else if (arg == "--N") {
       N = std::stoi(argv[++i]);
     } else if (arg == "--step") {
@@ -35,6 +38,8 @@ int main (int argc, char* argv[]) {
   if (display_options_and_quit) {
     std::cout << "--seed [" << random_seed << "]:        \t"
          << "random seed" << std::endl;
+    std::cout << "--updater [" << updater << "]:   \t"
+         << "choice of updater" << std::endl;
     std::cout << "--N [" << N << "]:\t"
          << "number of samples" << std::endl;
     std::cout << "--step [" << step_size << "]:        \t"
@@ -59,7 +64,15 @@ int main (int argc, char* argv[]) {
   autodiff::InputList inputs;
   auto w = inputs.Add("w", 1, 1, "unit-variance");
   auto b = inputs.Add("b", 1, 1, "unit-variance");
-  autodiff::SimpleGradientDescent gd(&inputs, step_size);
+
+  std::unique_ptr<autodiff::Updater> gd;
+  if (updater == "sgd") {
+    gd = cc14::make_unique<autodiff::SimpleGradientDescent>(&inputs, step_size);
+  } else if (updater == "adam") {
+    gd = cc14::make_unique<autodiff::Adam>(&inputs, step_size);
+  } else {
+    ASSERT(false, "Unknown updater " << updater);
+  }
 
   double loss = -std::numeric_limits<double>::infinity();
   for (size_t sample_num = 1; sample_num <= N; ++sample_num) {
@@ -104,7 +117,7 @@ int main (int argc, char* argv[]) {
         util_string::to_string_with_precision(new_loss, 2), 10, ' ', "left");
     std::cout << msg << std::endl;
 
-    gd.UpdateValuesAndResetGradient();
+    gd->UpdateValuesAndResetGradients();
     loss = new_loss;
   }
   std::cout << std::endl;

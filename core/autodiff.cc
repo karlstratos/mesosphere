@@ -589,9 +589,58 @@ void InputList::Clear() {
   list_.clear();
 }
 
-void Updater::UpdateValuesAndResetGradient() {
-  UpdateValues();
-  inputs_->ResetGradient();
+void Updater::UpdateValuesAndResetGradients() {
+  for (size_t i = 0; i < inputs_->Size(); ++i) {
+    if (!(*inputs_)(i)->frozen()) {
+      UpdateValue(i);
+      ++num_updates_[i];
+    }
+  }
+  inputs_->ResetGradients();
+}
+
+void SimpleGradientDescent::UpdateValue(size_t input_index) {
+  auto input = (*inputs_)(input_index);
+  *input->value() -= step_size_ * (*input->gradient());
+}
+
+Adam::Adam(InputList *inputs, double step_size) : Updater(inputs) {
+  step_size_ = step_size;
+  InitializeMoments();
+}
+
+Adam::Adam(InputList *inputs, double step_size, double b1, double b2,
+           double ep) : Updater(inputs), b1_(b1), b2_(b2), ep_(ep) {
+  step_size_ = step_size;
+  InitializeMoments();
+}
+
+void Adam::InitializeMoments() {
+  first_moments_.resize(inputs_->Size());
+  second_moments_.resize(inputs_->Size());
+  for (size_t i = 0; i < inputs_->Size(); ++i) {
+    auto input = (*inputs_)(i);
+    if (!input->frozen()) {
+      first_moments_[i] = Eigen::ArrayXXd::Zero(input->NumRows(),
+                                                input->NumColumns());
+      second_moments_[i] = Eigen::ArrayXXd::Zero(input->NumRows(),
+                                                 input->NumColumns());
+    }
+  }
+}
+
+void Adam::UpdateValue(size_t input_index) {
+  auto input = (*inputs_)(input_index);
+  size_t update_num = num_updates_[input_index] + 1;
+  first_moments_[input_index] = b1_ * first_moments_[input_index] +
+                                (1 - b1_) * input->gradient()->array();
+  second_moments_[input_index] = b2_ * second_moments_[input_index] +
+                                 (1 - b2_) * input->gradient()->array().pow(2);
+  double update_rate =
+      step_size_ * sqrt(1 - pow(b2_, update_num)) / (1 - pow(b1_, update_num));
+  input->value()->array() -=
+      update_rate * (first_moments_[input_index] /
+                     (second_moments_[input_index].sqrt() + ep_));
 }
 
 }  // namespace autodiff

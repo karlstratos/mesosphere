@@ -371,7 +371,7 @@ class InputList {
                              bool frozen=false);
   void Clear();
   size_t Size() { return list_.size(); }
-  void ResetGradient() { for (auto X : list_) { X->ResetGradient(); } }
+  void ResetGradients() { for (auto X : list_) { X->ResetGradient(); } }
 
   std::vector<std::shared_ptr<Input>> *list() { return &list_; }
   std::shared_ptr<Input> operator()(size_t i) { return list_[i]; }
@@ -389,32 +389,48 @@ class InputList {
 // Abstract class: different updating schemes for input values.
 class Updater {
  public:
-  Updater(InputList *inputs) : inputs_(inputs) { }
+  Updater(InputList *inputs) : inputs_(inputs) {
+    num_updates_.resize(inputs->Size(), 0);
+  }
   virtual ~Updater() { }
 
   // Update the values and reset the gradients of inputs.
-  void UpdateValuesAndResetGradient();
+  void UpdateValuesAndResetGradients();
 
-  virtual void UpdateValues() = 0;
+  virtual void UpdateValue(size_t input_index) = 0;
   double step_size() { return step_size_; }
   void set_step_size(double step_size) { step_size_ = step_size; }
 
  protected:
   InputList *inputs_;
+  std::vector<size_t> num_updates_;
   double step_size_;
 };
 
 // Simple gradient descent.
 class SimpleGradientDescent: public Updater {
  public:
-  SimpleGradientDescent(InputList *inputs, double step_size = 1.0)
+  SimpleGradientDescent(InputList *inputs, double step_size)
       : Updater(inputs) { step_size_ = step_size; }
+  void UpdateValue(size_t input_index) override;
+};
 
-  void UpdateValues() override {
-    for (auto X : *inputs_->list()) {
-      if (!X->frozen()) { *X->value() -= step_size_ * (*X->gradient()); }
-    }
-  }
+// ADAM: https://arxiv.org/pdf/1412.6980.pdf.
+class Adam: public Updater {
+ public:
+  Adam(InputList *inputs, double step_size);
+  Adam(InputList *inputs, double step_size, double b1, double b2, double ep);
+  void UpdateValue(size_t input_index) override;
+
+ protected:
+  void InitializeMoments();
+
+  double b1_ = 0.9;    // Refresh rate for first-moment gradient est
+  double b2_ = 0.999;  // Refresh rate for second-moment gradient est
+  double ep_ = 1e-08;  // Prevents division by zero
+
+  std::vector<Eigen::ArrayXXd> first_moments_;
+  std::vector<Eigen::ArrayXXd> second_moments_;
 };
 
 }  // namespace autodiff

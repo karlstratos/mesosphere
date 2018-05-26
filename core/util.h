@@ -37,6 +37,15 @@
 #   define ASSERT(condition, message) do { } while (false)
 #endif
 
+namespace cc14 {  // C++14 feature for self-containment, remove someday.
+
+template<typename T, typename... Args>
+std::unique_ptr<T> make_unique(Args&&... args) {
+    return std::unique_ptr<T>(new T(std::forward<Args>(args)...));
+}
+
+}
+
 namespace util_string {
 
 // Buffers a string to have a certain length.

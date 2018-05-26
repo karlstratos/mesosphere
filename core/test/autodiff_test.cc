@@ -254,7 +254,7 @@ TEST(GradientCheck, Test) {
 
   for (size_t i = 0; i < X_grad.rows(); ++i) {
     for (size_t j = 0; j < X_grad.cols(); ++j) {
-      inputs.ResetGradient();
+      inputs.ResetGradients();
       (*X->value())(i, j) += epsilon;
 
       auto H = logistic(W4 * (W3 * relu(W2 * tanh(W1 * X + b1) + b2) + b3)
@@ -265,6 +265,22 @@ TEST(GradientCheck, Test) {
       (*X->value())(i, j) -= epsilon;
     }
   }
+}
+
+TEST(Adam, Test) {
+  autodiff::InputList inputs;
+  auto X = inputs.Add("X", {{0}});
+  (*X->gradient()).resize(1, 1);
+  (*X->gradient())(0) = 10;
+
+  double step_size = 0.5;
+  double b1 = 0.6;
+  double b2 = 0.3;
+  double ep = 0.1;
+  autodiff::Adam gd(&inputs, step_size, b1, b2, ep);
+  gd.UpdateValuesAndResetGradients();
+
+  EXPECT_NEAR((*X->value())(0), -0.4941, 1e-4);
 }
 
 int main(int argc, char** argv) {

@@ -11,6 +11,7 @@
 
 int main (int argc, char* argv[]) {
   size_t random_seed = std::time(0);
+  std::string updater = "sgd";
   bool use_sqerr = false;
   size_t hdim = 8;
   size_t num_epochs = 2000;
@@ -23,6 +24,8 @@ int main (int argc, char* argv[]) {
     std::string arg = argv[i];
     if (arg == "--seed") {
       random_seed = std::stoi(argv[++i]);
+    } else if (arg == "--updater") {
+      updater = argv[++i];
     } else if (arg == "--sqerr") {
       use_sqerr = true;
     } else if (arg == "--hdim") {
@@ -44,6 +47,8 @@ int main (int argc, char* argv[]) {
   if (display_options_and_quit) {
     std::cout << "--seed [" << random_seed << "]:        \t"
          << "random seed" << std::endl;
+    std::cout << "--updater [" << updater << "]:   \t"
+         << "choice of updater" << std::endl;
     std::cout << "--sqerr [" << use_sqerr << "]:        \t"
          << "use squared error instead of cross entropy?" << std::endl;
     std::cout << "--hdim [" << hdim << "]:        \t"
@@ -72,7 +77,15 @@ int main (int argc, char* argv[]) {
   auto b1 = inputs.Add("b1", hdim, 1, "unit-variance");
   auto W2 = inputs.Add("W2", 1, hdim, "unit-variance");
   auto b2 = inputs.Add("b2", 1, 1, "unit-variance");
-  autodiff::SimpleGradientDescent gd(&inputs, step_size);
+
+  std::unique_ptr<autodiff::Updater> gd;
+  if (updater == "sgd") {
+    gd = cc14::make_unique<autodiff::SimpleGradientDescent>(&inputs, step_size);
+  } else if (updater == "adam") {
+    gd = cc14::make_unique<autodiff::Adam>(&inputs, step_size);
+  } else {
+    ASSERT(false, "Unknown updater " << updater);
+  }
 
   double loss = -std::numeric_limits<double>::infinity();
   for (size_t epoch_num = 1; epoch_num <= num_epochs; ++epoch_num) {
@@ -82,9 +95,9 @@ int main (int argc, char* argv[]) {
              average(binary_cross_entropy(H, {false, true, true, false}));
     double new_loss = l->ForwardBackward();
     std::cout << "epoch: " << epoch_num << "     "
-              << "step size: " << gd.step_size() << "     "
+              << "step size: " << gd->step_size() << "     "
               << "loss: " << new_loss << std::endl;
-    gd.UpdateValuesAndResetGradient();
+    gd->UpdateValuesAndResetGradients();
     loss = new_loss;
   }
   std::cout << std::endl;
