@@ -10,11 +10,9 @@ std::shared_ptr<Variable> operator+(std::shared_ptr<Variable> X,
                        (Y->NumColumns() == 1);
   ASSERT(X->NumRows() == Y->NumRows() && (X->NumColumns() == Y->NumColumns() ||
                                           matrix_vector),
-         "\nX + Y: must be either matrix-matrix or matrix-vector, given\n"
-         << X->Shape() << ": X = " << X->name() << "\n"
-         << Y->Shape() << ": Y = " << Y->name());
+         "Add: must be either matrix-matrix or matrix-vector, given "
+         << X->Shape() << " and " << Y->Shape());
   auto Z = std::make_shared<Add>();
-  Z->set_name(X->name() + " + " + Y->name());
   Z->AddParent(X);
   Z->AddParent(Y);
   *Z->gradient() = Eigen::MatrixXd::Zero(X->NumRows(), X->NumColumns());
@@ -28,11 +26,9 @@ std::shared_ptr<Variable> operator-(std::shared_ptr<Variable> X,
                        (Y->NumColumns() == 1);
   ASSERT(X->NumRows() == Y->NumRows() && (X->NumColumns() == Y->NumColumns() ||
                                           matrix_vector),
-         "\nX - Y: must be either matrix-matrix or matrix-vector, given\n"
-         << X->Shape() << ": X = " << X->name() << "\n"
-         << Y->Shape() << ": Y = " << Y->name());
+         "Subtract: must be either matrix-matrix or matrix-vector, given "
+         << X->Shape() << " and " << Y->Shape());
   auto Z = std::make_shared<Subtract>();
-  Z->set_name(X->name() + " - " + Y->name());
   Z->AddParent(X);
   Z->AddParent(Y);
   *Z->gradient() = Eigen::MatrixXd::Zero(X->NumRows(), X->NumColumns());
@@ -43,7 +39,6 @@ std::shared_ptr<Variable> operator-(std::shared_ptr<Variable> X,
 std::shared_ptr<Variable> operator+(std::shared_ptr<Variable> X,
                                     double scalar_value) {
   auto Z = std::make_shared<AddScalar>();
-  Z->set_name(X->name() + " + " + std::to_string(scalar_value));
   Z->AddParent(X);
   *Z->gradient() = Eigen::MatrixXd::Zero(X->NumRows(), X->NumColumns());
   Z->set_scalar_value(scalar_value);
@@ -53,11 +48,9 @@ std::shared_ptr<Variable> operator+(std::shared_ptr<Variable> X,
 std::shared_ptr<Variable> operator*(std::shared_ptr<Variable> X,
                                     std::shared_ptr<Variable> Y) {
   ASSERT(X->NumColumns() == Y->NumRows(),
-         "\nX * Y: dimensions do not match, given\n"
-         << X->Shape() << ": X = " << X->name() << "\n"
-         << Y->Shape() << ": Y = " << Y->name());
+         "Multiply: dimensions do not match, given "
+         << X->Shape() << " and " << Y->Shape());
   auto Z = std::make_shared<Multiply>();
-  Z->set_name(X->name() + " * " + Y->name());
   Z->AddParent(X);
   Z->AddParent(Y);
   *Z->gradient() = Eigen::MatrixXd::Zero(X->NumRows(), Y->NumColumns());
@@ -67,11 +60,9 @@ std::shared_ptr<Variable> operator*(std::shared_ptr<Variable> X,
 std::shared_ptr<Variable> operator%(std::shared_ptr<Variable> X,
                                     std::shared_ptr<Variable> Y) {
   ASSERT(X->NumRows() == Y->NumRows() && X->NumColumns() == Y->NumColumns(),
-         "\nX % Y: dimensions do not match, given\n"
-         << X->Shape() << ": X = " << X->name() << "\n"
-         << Y->Shape() << ": Y = " << Y->name());
+         "Multiply element-wise: dimensions do not match, given "
+         << X->Shape() << " and " << Y->Shape());
   auto Z = std::make_shared<MultiplyElementwise>();
-  Z->set_name(X->name() + " % " + Y->name());
   Z->AddParent(X);
   Z->AddParent(Y);
   *Z->gradient() = Eigen::MatrixXd::Zero(X->NumRows(), X->NumColumns());
@@ -81,7 +72,6 @@ std::shared_ptr<Variable> operator%(std::shared_ptr<Variable> X,
 std::shared_ptr<Variable> operator*(std::shared_ptr<Variable> X,
                                     double scalar_value) {
   auto Z = std::make_shared<MultiplyScalar>();
-  Z->set_name(X->name() + " * " + std::to_string(scalar_value));
   Z->AddParent(X);
   *Z->gradient() = Eigen::MatrixXd::Zero(X->NumRows(), X->NumColumns());
   Z->set_scalar_value(scalar_value);
@@ -91,9 +81,8 @@ std::shared_ptr<Variable> operator*(std::shared_ptr<Variable> X,
 std::shared_ptr<Variable> operator&(std::shared_ptr<Variable> X,
                                     std::shared_ptr<Variable> Y) {
   ASSERT(X->NumColumns() == Y->NumColumns(),
-         "vertical cat between X " << X->Shape() << ", Y " << Y->Shape());
+         "vertical cat between " << X->Shape() << ", " << Y->Shape());
   auto Z = std::make_shared<ConcatenateVertical>();
-  Z->set_name(X->name() + " & " + Y->name());
   Z->AddParent(X);
   Z->AddParent(Y);
   *Z->gradient() = Eigen::MatrixXd::Zero(X->NumRows() + Y->NumRows(),
@@ -104,9 +93,8 @@ std::shared_ptr<Variable> operator&(std::shared_ptr<Variable> X,
 std::shared_ptr<Variable> operator^(std::shared_ptr<Variable> X,
                                     std::shared_ptr<Variable> Y) {
   ASSERT(X->NumRows() == Y->NumRows(),
-         "horizontal cat between X " << X->Shape() << ", Y " << Y->Shape());
+         "horizontal cat between " << X->Shape() << ", " << Y->Shape());
   auto Z = std::make_shared<ConcatenateHorizontal>();
-  Z->set_name(X->name() + " ^ " + Y->name());
   Z->AddParent(X);
   Z->AddParent(Y);
   *Z->gradient() = Eigen::MatrixXd::Zero(X->NumRows(),
@@ -118,9 +106,8 @@ std::shared_ptr<Variable> dot(std::shared_ptr<Variable> X,
                               std::shared_ptr<Variable> Y) {
   ASSERT(X->NumRows() == Y->NumRows() &&
          X->NumColumns() == Y->NumColumns(),
-         "column-wise dot between X " << X->Shape() << ", Y " << Y->Shape());
+         "column-wise dot between " << X->Shape() << ", " << Y->Shape());
   auto Z = std::make_shared<Dot>();
-  Z->set_name("dot(" + X->name() + ", " + Y->name() +")");
   Z->AddParent(X);
   Z->AddParent(Y);
   *Z->gradient() = Eigen::MatrixXd::Zero(1, X->NumColumns());
@@ -129,7 +116,6 @@ std::shared_ptr<Variable> dot(std::shared_ptr<Variable> X,
 
 std::shared_ptr<Variable> operator-(std::shared_ptr<Variable> X) {
   auto Z = std::make_shared<FlipSign>();
-  Z->set_name("-" + X->name());
   Z->AddParent(X);
   *Z->gradient() = Eigen::MatrixXd::Zero(X->NumRows(), X->NumColumns());
   return Z;
@@ -137,7 +123,6 @@ std::shared_ptr<Variable> operator-(std::shared_ptr<Variable> X) {
 
 std::shared_ptr<Variable> sum(std::shared_ptr<Variable> X) {
   auto Z = std::make_shared<ReduceSum>();
-  Z->set_name("sum(" + X->name() + ")");
   Z->AddParent(X);
   *Z->gradient() = Eigen::MatrixXd::Zero(1, 1);
   return Z;
@@ -145,7 +130,6 @@ std::shared_ptr<Variable> sum(std::shared_ptr<Variable> X) {
 
 std::shared_ptr<Variable> average(std::shared_ptr<Variable> X) {
   auto Z = std::make_shared<ReduceAverage>();
-  Z->set_name("average(" + X->name() + ")");
   Z->AddParent(X);
   *Z->gradient() = Eigen::MatrixXd::Zero(1, 1);
   return Z;
@@ -153,7 +137,6 @@ std::shared_ptr<Variable> average(std::shared_ptr<Variable> X) {
 
 std::shared_ptr<Variable> transpose(std::shared_ptr<Variable> X) {
   auto Z = std::make_shared<Transpose>();
-  Z->set_name(X->name() + "^T");
   Z->AddParent(X);
   *Z->gradient() = Eigen::MatrixXd::Zero(X->NumColumns(), X->NumRows());
   return Z;
@@ -161,7 +144,6 @@ std::shared_ptr<Variable> transpose(std::shared_ptr<Variable> X) {
 
 std::shared_ptr<Variable> logistic(std::shared_ptr<Variable> X) {
   auto Z = std::make_shared<Logistic>();
-  Z->set_name("logistic(" + X->name() + ")");
   Z->AddParent(X);
   *Z->gradient() = Eigen::MatrixXd::Zero(X->NumRows(), X->NumColumns());
   return Z;
@@ -169,7 +151,6 @@ std::shared_ptr<Variable> logistic(std::shared_ptr<Variable> X) {
 
 std::shared_ptr<Variable> tanh(std::shared_ptr<Variable> X) {
   auto Z = std::make_shared<Tanh>();
-  Z->set_name("tanh(" + X->name() + ")");
   Z->AddParent(X);
   *Z->gradient() = Eigen::MatrixXd::Zero(X->NumRows(), X->NumColumns());
   return Z;
@@ -177,7 +158,6 @@ std::shared_ptr<Variable> tanh(std::shared_ptr<Variable> X) {
 
 std::shared_ptr<Variable> relu(std::shared_ptr<Variable> X) {
   auto Z = std::make_shared<ReLU>();
-  Z->set_name("relu(" + X->name() + ")");
   Z->AddParent(X);
   *Z->gradient() = Eigen::MatrixXd::Zero(X->NumRows(), X->NumColumns());
   return Z;
@@ -185,7 +165,6 @@ std::shared_ptr<Variable> relu(std::shared_ptr<Variable> X) {
 
 std::shared_ptr<Variable> softmax(std::shared_ptr<Variable> X) {
   auto Z = std::make_shared<Softmax>();
-  Z->set_name("softmax(" + X->name() + ")");
   Z->AddParent(X);
   *Z->gradient() = Eigen::MatrixXd::Zero(X->NumRows(), X->NumColumns());
   return Z;
@@ -193,11 +172,9 @@ std::shared_ptr<Variable> softmax(std::shared_ptr<Variable> X) {
 
 std::shared_ptr<Variable> pick(std::shared_ptr<Variable> X,
                                const std::vector<size_t> &indices) {
-  ASSERT(X->NumColumns() == indices.size(), "X " << X->Shape()
-         << " vs # indices " << indices.size());
+  ASSERT(X->NumColumns() == indices.size(), X->Shape() << ", vs "
+         << indices.size() << " indices");
   auto Z = std::make_shared<Pick>();
-  Z->set_name("pick(" + X->name() + ", " +
-              "[" + util_string::convert_to_string(indices) + "])");
   Z->set_indices(indices);
   Z->AddParent(X);
   *Z->gradient() = Eigen::MatrixXd::Zero(1, indices.size());
@@ -206,11 +183,9 @@ std::shared_ptr<Variable> pick(std::shared_ptr<Variable> X,
 
 std::shared_ptr<Variable> cross_entropy(
     std::shared_ptr<Variable> X, const std::vector<size_t> &indices) {
-  ASSERT(X->NumColumns() == indices.size(), "X " << X->Shape()
-         << " vs # indices " << indices.size());
+  ASSERT(X->NumColumns() == indices.size(), X->Shape() << ", vs "
+         << indices.size() << " indices");
   auto Z = std::make_shared<PickNegativeLogSoftmax>();
-  Z->set_name("cross_entropy(" + X->name() + ", " +
-              "[" + util_string::convert_to_string(indices) + "])");
   Z->set_indices(indices);
   Z->AddParent(X);
   *Z->gradient() = Eigen::MatrixXd::Zero(1, indices.size());
@@ -220,11 +195,9 @@ std::shared_ptr<Variable> cross_entropy(
 std::shared_ptr<Variable> binary_cross_entropy(
     std::shared_ptr<Variable> X, const std::vector<bool> &flags) {
   ASSERT(X->NumRows() == 1, "X not a row vector: " << X->Shape());
-  ASSERT(X->NumColumns() == flags.size(), "X " << X->Shape()
-         << " vs # flags " << flags.size());
+  ASSERT(X->NumColumns() == flags.size(), X->Shape() << ", vs "
+         << flags.size() << " flags");
   auto Z = std::make_shared<FlagNegativeLogistic>();
-  Z->set_name("binary_cross_entropy(" + X->name() + ", " +
-              "[" + util_string::convert_to_string(flags) + "])");
   Z->set_flags(flags);
   Z->AddParent(X);
   *Z->gradient() = Eigen::MatrixXd::Zero(1, flags.size());
@@ -255,29 +228,6 @@ double Variable::ForwardBackward() {
   Forward(&topological_order);
   Backward(topological_order);
   return value_(0);
-}
-
-std::shared_ptr<Input> MakeInput(const std::vector<std::vector<double>> &rows) {
-  auto X = std::make_shared<autodiff::Input>();
-  size_t num_columns = rows[0].size();
-  X->value()->resize(rows.size(), num_columns);
-  for (size_t i = 0; i < rows.size(); ++i) {
-    ASSERT(rows[i].size() == num_columns, "Wrong matrix format");
-    for (size_t j = 0; j < num_columns; ++j) {
-      (*X->value())(i, j) = rows[i][j];
-    }
-  }
-  *X->gradient() = Eigen::MatrixXd::Zero(rows.size(), num_columns);
-  X->set_frozen(true);
-  return X;
-}
-
-std::shared_ptr<Input> MakeInput(const Eigen::MatrixXd &value) {
-  auto X = std::make_shared<autodiff::Input>();
-  *X->value() = value;
-  *X->gradient()  = Eigen::MatrixXd::Zero(value.rows(), value.cols());
-  X->set_frozen(true);
-  return X;
 }
 
 void Input::Forward(std::vector<std::shared_ptr<Variable>> *topological_order) {
@@ -525,7 +475,7 @@ void PickNegativeLogSoftmax::PropagateGradient() {
 }
 
 void FlagNegativeLogistic::Forward(std::vector<std::shared_ptr<Variable>>
-                                     *topological_order) {
+                                   *topological_order) {
   if (value_.rows() > 0) { return; }
   Parent(0)->Forward(topological_order);
   logistic_cache_ = Parent(0)->value()->unaryExpr(
@@ -546,101 +496,96 @@ void FlagNegativeLogistic::PropagateGradient() {
   *Parent(0)->gradient() += logistic_cache_.cwiseProduct(gradient_);
 }
 
-std::shared_ptr<Input> InputList::Add(std::string name, size_t num_rows,
-                                      size_t num_columns,
-                                      std::string initialization_method,
-                                      bool frozen) {
+size_t Model::AddWeight(const Eigen::MatrixXd &weight, bool frozen) {
+  ASSERT(!made_input_, "Cannot add new weights after creating input pointers "
+         " because they corrupt addresses");
+  size_t i = weights_.size();
+  weights_.push_back(weight);
+  gradients_.resize(i + 1);
+  frozen_.push_back(frozen);
+  return i;
+}
+
+size_t Model::AddTemporaryWeight(const Eigen::MatrixXd &temporary_weight) {
+  ASSERT(!made_temporary_input_, "Cannot add new temporary weights after "
+         "creating input pointers because they corrupt addresses");
+  size_t temporary_index = temporary_weights_.size();
+  temporary_weights_.push_back(temporary_weight);
+  temporary_gradients_.resize(temporary_index + 1);
+  return temporary_index;
+}
+
+std::shared_ptr<Input> Model::MakeInput(size_t i) {
   auto X = std::make_shared<autodiff::Input>();
-  *X->value() = util_eigen::initialize(num_rows, num_columns,
-                                       initialization_method);
-  *X->gradient() = Eigen::MatrixXd::Zero(num_rows, num_columns);
-  X->set_name(name);
-  X->set_frozen(frozen);
-  list_.push_back(X);
+  gradients_[i] = Eigen::MatrixXd::Zero(weights_[i].rows(), weights_[i].cols());
+  X->set_value_address(&weights_[i]);
+  X->set_gradient_address(&gradients_[i]);
+  if (!frozen_[i]) { update_list_.push_back(i); }
+  made_input_ = true;
   return X;
 }
 
-std::shared_ptr<Input> InputList::Add(
-    std::string name, const std::vector<std::vector<double>> &rows,
-    bool frozen) {
-  size_t num_columns = rows[0].size();
-  Eigen::MatrixXd value(rows.size(), num_columns);
-  for (size_t i = 0; i < rows.size(); ++i) {
-    ASSERT(rows[i].size() == num_columns, "Wrong matrix format");
-    for (size_t j = 0; j < num_columns; ++j) { value(i, j) = rows[i][j]; }
-  }
-  return Add(name, value, frozen);
-}
-
-std::shared_ptr<Input> InputList::Add(std::string name,
-                                      const Eigen::MatrixXd &value,
-                                      bool frozen) {
+std::shared_ptr<Input> Model::MakeTemporaryInput(size_t temporary_index) {
   auto X = std::make_shared<autodiff::Input>();
-  *X->value() = value;
-  *X->gradient() = Eigen::MatrixXd::Zero(value.rows(), value.cols());
-  X->set_name(name);
-  X->set_frozen(frozen);
-  list_.push_back(X);
+  temporary_gradients_[temporary_index] =
+      Eigen::MatrixXd::Zero(temporary_weights_[temporary_index].rows(),
+                            temporary_weights_[temporary_index].cols());
+  X->set_value_address(&temporary_weights_[temporary_index]);
+  X->set_gradient_address(&temporary_gradients_[temporary_index]);
+  made_temporary_input_ = true;
   return X;
 }
 
-void InputList::Clear() {
-  for (auto input : list_) { input.reset(); }
-  list_.clear();
+void Model::CleanUpAfterUpdate() {
+  update_list_.clear();
+  temporary_weights_.clear();
+  temporary_gradients_.clear();
+  made_input_ = false;
+  made_temporary_input_ = false;
 }
 
-void Updater::UpdateValuesAndResetGradients() {
-  for (size_t i = 0; i < inputs_->Size(); ++i) {
-    if (!(*inputs_)(i)->frozen()) {
-      UpdateValue(i);
-      ++num_updates_[i];
-    }
+void Updater::UpdateWeights() {
+  for (size_t i : *model_->update_list()) {
+    UpdateWeight(i);
+    ++num_updates_[i];
   }
-  inputs_->ResetGradients();
+  model_->CleanUpAfterUpdate();
 }
 
-void SimpleGradientDescent::UpdateValue(size_t input_index) {
-  auto input = (*inputs_)(input_index);
-  *input->value() -= step_size_ * (*input->gradient());
-}
-
-Adam::Adam(InputList *inputs, double step_size) : Updater(inputs) {
+Adam::Adam(Model *model, double step_size) : Updater(model) {
   step_size_ = step_size;
   InitializeMoments();
 }
 
-Adam::Adam(InputList *inputs, double step_size, double b1, double b2,
-           double ep) : Updater(inputs), b1_(b1), b2_(b2), ep_(ep) {
+Adam::Adam(Model *model, double step_size, double b1, double b2,
+           double ep) : Updater(model), b1_(b1), b2_(b2), ep_(ep) {
   step_size_ = step_size;
   InitializeMoments();
 }
 
 void Adam::InitializeMoments() {
-  first_moments_.resize(inputs_->Size());
-  second_moments_.resize(inputs_->Size());
-  for (size_t i = 0; i < inputs_->Size(); ++i) {
-    auto input = (*inputs_)(i);
-    if (!input->frozen()) {
-      first_moments_[i] = Eigen::ArrayXXd::Zero(input->NumRows(),
-                                                input->NumColumns());
-      second_moments_[i] = Eigen::ArrayXXd::Zero(input->NumRows(),
-                                                 input->NumColumns());
+  first_moments_.resize(model_->NumWeights());
+  second_moments_.resize(model_->NumWeights());
+  for (size_t i = 0; i < model_->NumWeights(); ++i) {
+    size_t num_rows = model_->weight(i)->rows();
+    size_t num_columns = model_->weight(i)->cols();
+    if (!model_->frozen(i)) {
+      first_moments_[i] = Eigen::ArrayXXd::Zero(num_rows, num_columns);
+      second_moments_[i] = Eigen::ArrayXXd::Zero(num_rows, num_columns);
     }
   }
 }
 
-void Adam::UpdateValue(size_t input_index) {
-  auto input = (*inputs_)(input_index);
-  size_t update_num = num_updates_[input_index] + 1;
-  first_moments_[input_index] = b1_ * first_moments_[input_index] +
-                                (1 - b1_) * input->gradient()->array();
-  second_moments_[input_index] = b2_ * second_moments_[input_index] +
-                                 (1 - b2_) * input->gradient()->array().pow(2);
+void Adam::UpdateWeight(size_t i) {
+  size_t update_num = num_updates_[i] + 1;
+  first_moments_[i] = b1_ * first_moments_[i] +
+                      (1 - b1_) * model_->gradient(i)->array();
+  second_moments_[i] = b2_ * second_moments_[i] +
+                       (1 - b2_) * model_->gradient(i)->array().pow(2);
   double update_rate =
       step_size_ * sqrt(1 - pow(b2_, update_num)) / (1 - pow(b1_, update_num));
-  input->value()->array() -=
-      update_rate * (first_moments_[input_index] /
-                     (second_moments_[input_index].sqrt() + ep_));
+  model_->weight(i)->array() -=
+      update_rate * (first_moments_[i] / (second_moments_[i].sqrt() + ep_));
 }
 
 }  // namespace autodiff

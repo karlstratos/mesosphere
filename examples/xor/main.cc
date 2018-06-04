@@ -11,11 +11,10 @@
 
 int main (int argc, char* argv[]) {
   size_t random_seed = std::time(0);
-  std::string updater = "sgd";
+  std::string updater = "adam";
   bool use_sqerr = false;
   size_t hdim = 8;
   size_t num_epochs = 2000;
-  bool frozen = true;  // More difficult to learn if frozen.
   double step_size = 0.1;
 
   // Parse command line arguments.
@@ -32,8 +31,6 @@ int main (int argc, char* argv[]) {
       hdim = std::stoi(argv[++i]);
     } else if (arg == "--epochs") {
       num_epochs = std::stoi(argv[++i]);
-    } else if (arg == "--update") {
-      frozen = false;
     } else if (arg == "--step") {
       step_size = std::stod(argv[++i]);
     } else if (arg == "--help" || arg == "-h"){
@@ -53,8 +50,6 @@ int main (int argc, char* argv[]) {
          << "use squared error instead of cross entropy?" << std::endl;
     std::cout << "--hdim [" << hdim << "]:        \t"
          << "dimension of feedforward output vector" << std::endl;
-    std::cout << "--update:         \t"
-         << "update the input representation?" << std::endl;
     std::cout << "--epochs [" << num_epochs << "]:\t"
          << "number of epochs" << std::endl;
     std::cout << "--step [" << step_size << "]:        \t"
@@ -66,30 +61,42 @@ int main (int argc, char* argv[]) {
 
   std::srand(random_seed);
 
-  autodiff::InputList inputs;
-  auto x11 = inputs.Add("x11", {{1}, {1}}, frozen);
-  auto x10 = inputs.Add("x10", {{1}, {0}}, frozen);
-  auto x01 = inputs.Add("x01", {{0}, {1}}, frozen);
-  auto x00 = inputs.Add("x00", {{0}, {0}}, frozen);
-  auto Y = inputs.Add("Y", {{0, 1, 1, 0}}, true);  // Frozen label for l2
-
-  auto W1 = inputs.Add("W1", hdim, 2, "unit-variance");
-  auto b1 = inputs.Add("b1", hdim, 1, "unit-variance");
-  auto W2 = inputs.Add("W2", 1, hdim, "unit-variance");
-  auto b2 = inputs.Add("b2", 1, 1, "unit-variance");
+  // Model parameters
+  autodiff::Model model;
+  auto i_W1 = model.AddWeight(hdim, 2, "unit-variance");
+  auto i_b1 = model.AddWeight(hdim, 1, "unit-variance");
+  auto i_W2 = model.AddWeight(1, hdim, "unit-variance");
+  auto i_b2 = model.AddWeight(1, 1, "unit-variance");
 
   std::unique_ptr<autodiff::Updater> gd;
   if (updater == "sgd") {
-    gd = cc14::make_unique<autodiff::SimpleGradientDescent>(&inputs, step_size);
+    gd = cc14::make_unique<autodiff::SimpleGradientDescent>(&model, step_size);
   } else if (updater == "adam") {
-    gd = cc14::make_unique<autodiff::Adam>(&inputs, step_size);
+    gd = cc14::make_unique<autodiff::Adam>(&model, step_size);
   } else {
     ASSERT(false, "Unknown updater " << updater);
   }
 
+  auto draw_XY = [&]() {
+    size_t i_X = model.AddTemporaryWeight({{1, 1, 0, 0}, {1, 0, 1, 0}});
+    size_t i_Y = model.AddTemporaryWeight({{0, 1, 1, 0}});
+    auto X = model.MakeTemporaryInput(i_X);
+    auto Y = model.MakeTemporaryInput(i_Y);
+    return std::make_pair(X, Y);
+  };
+
   double loss = -std::numeric_limits<double>::infinity();
   for (size_t epoch_num = 1; epoch_num <= num_epochs; ++epoch_num) {
-    auto H = W2 * tanh(W1 * (x11 ^ x10 ^ x01 ^ x00) + b1) + b2;
+    auto training_data = draw_XY();
+    auto X = training_data.first;
+    auto Y = training_data.second;
+
+    // Compute loss with current model.
+    auto W1 = model.MakeInput(i_W1);
+    auto b1 = model.MakeInput(i_b1);
+    auto W2 = model.MakeInput(i_W2);
+    auto b2 = model.MakeInput(i_b2);
+    auto H = W2 * tanh(W1 * X + b1) + b2;
     auto l = (use_sqerr) ?
              average(squared_norm(H - Y)) :
              average(binary_cross_entropy(H, {false, true, true, false}));
@@ -97,22 +104,23 @@ int main (int argc, char* argv[]) {
     std::cout << "epoch: " << epoch_num << "     "
               << "step size: " << gd->step_size() << "     "
               << "loss: " << new_loss << std::endl;
-    gd->UpdateValuesAndResetGradients();
+    gd->UpdateWeights();
     loss = new_loss;
   }
   std::cout << std::endl;
 
-  auto H = W2 * tanh(W1 * (x11 ^ x10 ^ x01 ^ x00) + b1) + b2;
+  auto training_data = draw_XY();
+  auto X = training_data.first;
+  auto W1 = model.MakeInput(i_W1);
+  auto b1 = model.MakeInput(i_b1);
+  auto W2 = model.MakeInput(i_W2);
+  auto b2 = model.MakeInput(i_b2);
+  auto H = W2 * tanh(W1 * X + b1) + b2;
   auto P = (use_sqerr) ? H : logistic(H);
   Eigen::MatrixXd P_value = P->Forward();
 
-  std::cout << "x11 value: " << x11->value()->transpose()
-            << " -> " << P_value(0) << std::endl;
-  std::cout << "x10 value: " << x10->value()->transpose()
-            << " -> " << P_value(1) << std::endl;
-  std::cout << "x01 value: " << x01->value()->transpose()
-            << " -> " << P_value(2) << std::endl;
-  std::cout << "x00 value: " << x00->value()->transpose()
-            << " -> " << P_value(3) << std::endl;
-  if (use_sqerr) { std::cout << "Y value: " << *Y->value() << std::endl; }
+  std::cout << "(1, 1) -> " << P_value(0) << std::endl;
+  std::cout << "(1, 0) -> " << P_value(1) << std::endl;
+  std::cout << "(0, 1) -> " << P_value(2) << std::endl;
+  std::cout << "(0, 0) -> " << P_value(3) << std::endl;
 }

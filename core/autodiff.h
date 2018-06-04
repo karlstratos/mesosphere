@@ -21,7 +21,6 @@ class Variable: public dag::Node {
   //   (i)  Specify parents.
   //   (ii) Initialize the gradient to zero with a correct shape.
   Variable() : dag::Node() { }
-  Variable(std::string name) : dag::Node(name) { }
 
   //------- binary operators ---------------------------------------------------
   friend std::shared_ptr<Variable> operator+(std::shared_ptr<Variable> X,
@@ -106,9 +105,6 @@ class Variable: public dag::Node {
   // Calls Forward and then Backward, returns the final output value.
   double ForwardBackward();
 
-  void ResetGradient() { gradient_ = Eigen::MatrixXd::Zero(gradient_.rows(),
-                                                           gradient_.cols()); }
-
   std::string Shape() { return util_eigen::dimension_string(*gradient()); }
   size_t NumRows() { return gradient()->rows(); }
   size_t NumColumns() { return gradient()->cols(); }
@@ -131,22 +127,27 @@ class Variable: public dag::Node {
   Eigen::MatrixXd gradient_;
 };
 
-// X
+// X: Input is a special variable. rather than maintaining its own value and
+// gradient, it only keeps the *addresses* of some external memory blocks whose
+// lifetime subsumes its own lifetime. These addresses must never be corrupted.
 class Input: public Variable {
  public:
   void Forward(std::vector<std::shared_ptr<Variable>> *topological_order)
       override;
   void PropagateGradient() override { }
-  void set_frozen(bool frozen) { frozen_ = frozen; }
-  bool frozen() { return frozen_; }
+  Eigen::MatrixXd *value() override { return value_address_; }
+  Eigen::MatrixXd *gradient() override { return gradient_address_; }
+  void set_value_address(Eigen::MatrixXd *value_address) {
+    value_address_ = value_address;
+  }
+  void set_gradient_address(Eigen::MatrixXd *gradient_address) {
+    gradient_address_ = gradient_address;
+  }
  protected:
+  Eigen::MatrixXd *value_address_;
+  Eigen::MatrixXd *gradient_address_;
   bool called_forward_ = false;
-  bool frozen_ = false;
 };
-
-// Make temporary input (frozen = true).
-std::shared_ptr<Input> MakeInput(const std::vector<std::vector<double>> &rows);
-std::shared_ptr<Input> MakeInput(const Eigen::MatrixXd &value);
 
 // X + Y: If X is a non-vector and Y is a vector, assume X + [Y ... Y].
 class Add: public Variable {
@@ -154,7 +155,6 @@ class Add: public Variable {
   void Forward(std::vector<std::shared_ptr<Variable>> *topological_order)
       override;
   void PropagateGradient() override;
-
   void set_matrix_vector(bool matrix_vector) { matrix_vector_ = matrix_vector; }
   bool matrix_vector() { return matrix_vector_; }
  protected:
@@ -178,7 +178,6 @@ class Subtract: public Variable {
   void Forward(std::vector<std::shared_ptr<Variable>> *topological_order)
       override;
   void PropagateGradient() override;
-
   void set_matrix_vector(bool matrix_vector) { matrix_vector_ = matrix_vector; }
   bool matrix_vector() { return matrix_vector_; }
  protected:
@@ -354,55 +353,82 @@ class FlagNegativeLogistic: public Variable {
   Eigen::MatrixXd logistic_cache_;
 };
 
-class InputList {
+// A Model is a set of weights (aka. parameters). For convenience, it provides
+// functionalities to handle gradients (for a single computation graph). Each
+// time it creates an Input variable, it ensures that the corresponding gradient
+// is initialized to zero internally. If you wish to work with multiple
+// computation graphs at the same time, you should explicitly handle gradients
+// yourself outside the model.
+class Model {
  public:
-  // Creates/initializes an Input.
-  std::shared_ptr<Input> Add(std::string name, size_t num_rows,
-                             size_t num_columns,
-                             std::string initialization_method,
-                             bool frozen=false);
+  // Adds a weight and returns its index.
+  size_t AddWeight(size_t num_rows, size_t num_columns,
+                   std::string initialization_method, bool frozen=false) {
+    return AddWeight(util_eigen::initialize(num_rows, num_columns,
+                                            initialization_method), frozen);
+  }
+  size_t AddWeight(const std::vector<std::vector<double>> &rows,
+                   bool frozen=false) {
+    return AddWeight(util_eigen::construct_matrix_from_rows(rows), frozen);
+  }
+  size_t AddWeight(const Eigen::MatrixXd &weight, bool frozen=false);
 
-  // Creates/fills an Input.
-  std::shared_ptr<Input> Add(std::string name,
-                             const std::vector<std::vector<double>> &rows,
-                             bool frozen=false);
-  std::shared_ptr<Input> Add(std::string name,
-                             const Eigen::MatrixXd &value,
-                             bool frozen=false);
-  void Clear();
-  size_t Size() { return list_.size(); }
-  void ResetGradients() { for (auto X : list_) { X->ResetGradient(); } }
+  // Adds a temporary weight used only for the current computation graph and
+  // returns its temporary index: the weight will be cleared after a model
+  // update.
+  size_t AddTemporaryWeight(const std::vector<std::vector<double>> &rows) {
+    return AddTemporaryWeight(util_eigen::construct_matrix_from_rows(rows));
+  }
+  size_t AddTemporaryWeight(const Eigen::MatrixXd &temporary_weight);
 
-  std::vector<std::shared_ptr<Input>> *list() { return &list_; }
-  std::shared_ptr<Input> operator()(size_t i) { return list_[i]; }
+  // Creates an Input pointer for a weight, initializes its gradient to zero,
+  // and includes the weight to the update list unless frozen.
+  std::shared_ptr<Input> MakeInput(size_t i);
+
+  // Creates an Input pointer for a temporary weight, initializes its temporary
+  // gradient to zero. Note: do not mix indices between permanent weights and
+  // temporary weights.
+  std::shared_ptr<Input> MakeTemporaryInput(size_t temporary_index);
+
+  size_t NumWeights() { return weights_.size(); }
+  size_t NumTemporaryWeights() { return temporary_weights_.size(); }
+  void CleanUpAfterUpdate();
+
+  Eigen::MatrixXd *weight(size_t i) { return &weights_[i]; }
+  Eigen::MatrixXd *gradient(size_t i) { return &gradients_[i]; }
+  bool frozen(size_t i) { return frozen_[i]; }
+  std::vector<size_t> *update_list() { return &update_list_; }
 
  private:
-  // DAG illustration                               ___________
-  //                                               /           \.
-  //          X       Y       Z                  X  __.  Y  ___. Z
-  //          .       .       .        =>        .       .       .
-  //           \      |      /                    \      |      /
-  // list_     [0]   [1]   [2]                    [0]   [1]   [2]
-  std::vector<std::shared_ptr<Input>> list_;
+  std::vector<Eigen::MatrixXd> weights_;
+  std::vector<Eigen::MatrixXd> gradients_;
+  std::vector<bool> frozen_;
+  std::vector<size_t> update_list_;
+  bool made_input_ = false;
+
+  // Holder for temporary input variables that are not part of the model.
+  std::vector<Eigen::MatrixXd> temporary_weights_;
+  std::vector<Eigen::MatrixXd> temporary_gradients_;
+  bool made_temporary_input_ = false;
 };
 
-// Abstract class: different updating schemes for input values.
+// Abstract class: different model updating schemes.
 class Updater {
  public:
-  Updater(InputList *inputs) : inputs_(inputs) {
-    num_updates_.resize(inputs->Size(), 0);
+  Updater(Model *model) : model_(model) {
+    num_updates_.resize(model->NumWeights(), 0);
   }
   virtual ~Updater() { }
 
-  // Update the values and reset the gradients of inputs.
-  void UpdateValuesAndResetGradients();
+  // Update model weights.
+  void UpdateWeights();
 
-  virtual void UpdateValue(size_t input_index) = 0;
+  virtual void UpdateWeight(size_t i) = 0;
   double step_size() { return step_size_; }
   void set_step_size(double step_size) { step_size_ = step_size; }
 
  protected:
-  InputList *inputs_;
+  Model *model_;
   std::vector<size_t> num_updates_;
   double step_size_;
 };
@@ -410,17 +436,19 @@ class Updater {
 // Simple gradient descent.
 class SimpleGradientDescent: public Updater {
  public:
-  SimpleGradientDescent(InputList *inputs, double step_size)
-      : Updater(inputs) { step_size_ = step_size; }
-  void UpdateValue(size_t input_index) override;
+  SimpleGradientDescent(Model *model, double step_size)
+      : Updater(model) { step_size_ = step_size; }
+  void UpdateWeight(size_t i) override {
+    *model_->weight(i) -= step_size_ * (*model_->gradient(i));
+  }
 };
 
 // ADAM: https://arxiv.org/pdf/1412.6980.pdf.
 class Adam: public Updater {
  public:
-  Adam(InputList *inputs, double step_size);
-  Adam(InputList *inputs, double step_size, double b1, double b2, double ep);
-  void UpdateValue(size_t input_index) override;
+  Adam(Model *model, double step_size);
+  Adam(Model *model, double step_size, double b1, double b2, double ep);
+  void UpdateWeight(size_t i) override;
 
  protected:
   void InitializeMoments();

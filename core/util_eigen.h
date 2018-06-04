@@ -12,6 +12,18 @@
 
 namespace util_eigen {
 
+// Construct an Eigen matrix from std vectors representing rows.
+inline Eigen::MatrixXd construct_matrix_from_rows(
+    const std::vector<std::vector<double>> &rows) {
+  size_t num_columns = rows[0].size();
+  Eigen::MatrixXd matrix(rows.size(), num_columns);
+  for (size_t i = 0; i < rows.size(); ++i) {
+    ASSERT(rows[i].size() == num_columns, "Wrong matrix format");
+    for (size_t j = 0; j < num_columns; ++j) { matrix(i, j) = rows[i][j]; }
+  }
+  return matrix;
+}
+
 // Column-wise stable log(sum_i e^{x_i}).
 inline Eigen::MatrixXd logsumexp(const Eigen::MatrixXd& columns) {
   // logsumexp(x) = C + logsumexp(x - C) for any C. Choose C = max{x_i}.
