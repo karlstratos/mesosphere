@@ -251,7 +251,7 @@ TEST(FlagNegativeLogistic, Test) {
   EXPECT_NEAR(-0.1192, (*x->gradient())(1), 1e-4); // -p(F2)
 }
 
-TEST(GradientCheck, Test) {
+TEST(Feedforward, GradientCheck) {
   std::srand(std::time(0));
   double epsilon = 1e-4;
   size_t num_examples = 5;
@@ -322,6 +322,122 @@ TEST(Adam, Test) {
   gd.UpdateWeights();
 
   EXPECT_NEAR((*X->value())(0), -0.4941, 1e-4);
+}
+
+TEST(SimpleRNN, Test) {
+  autodiff::Model model;
+  size_t i_X1 = model.AddWeight({{1, 3}, {2, 4}});
+  size_t i_X2 = model.AddWeight({{0, 0}, {1, -1}});
+  autodiff::SimpleRNN srnn(2, 2, 1, &model);
+  Eigen::MatrixXd U1(1, 2);
+  U1 << 1, 1;
+  Eigen::MatrixXd U2(1, 1);
+  U2 << 2;
+  Eigen::MatrixXd V1(1, 1);
+  V1 << 3;
+  Eigen::MatrixXd V2(1, 1);
+  V2 << 2;
+  Eigen::MatrixXd b1(1, 1);
+  b1 << 1;
+  Eigen::MatrixXd b2(1, 1);
+  b2 << -1;
+  srnn.SetWeights(U1, V1, b1, 0);
+  srnn.SetWeights(U2, V2, b2, 1);
+
+  auto X1 = model.MakeInput(i_X1);
+  auto X2 = model.MakeInput(i_X2);
+  auto HH = srnn.Transduce({X1, X2})[0];
+  Eigen::MatrixXd upper_right_H = HH.back().back()->Forward();
+
+  EXPECT_NEAR(upper_right_H(0, 0), 0.9872, 1e-4);
+  EXPECT_NEAR(upper_right_H(0, 1), 0.9870, 1e-4);
+}
+
+TEST(LSTM, Test) {
+  autodiff::Model model;
+  size_t i_X1 = model.AddWeight({{1}});
+  size_t i_X2 = model.AddWeight({{-1}});
+  autodiff::LSTM lstm(1, 1, 1, &model);
+  Eigen::MatrixXd raw_U(1, 1);
+  raw_U << 0.5;
+  Eigen::MatrixXd raw_V(1, 1);
+  raw_V << 0.5;
+  Eigen::MatrixXd raw_b(1, 1);
+  raw_b << 0.5;
+  Eigen::MatrixXd input_U(1, 1);
+  input_U << 1;
+  Eigen::MatrixXd input_V(1, 1);
+  input_V << 1;
+  Eigen::MatrixXd input_b(1, 1);
+  input_b << 1;
+  Eigen::MatrixXd forget_U(1, 1);
+  forget_U << 0;
+  Eigen::MatrixXd forget_V(1, 1);
+  forget_V << 0;
+  Eigen::MatrixXd forget_b(1, 1);
+  forget_b << 0;
+  Eigen::MatrixXd output_U(1, 1);
+  output_U << 2;
+  Eigen::MatrixXd output_V(1, 1);
+  output_V << 2;
+  Eigen::MatrixXd output_b(1, 1);
+  output_b << 2;
+  lstm.SetWeights(raw_U, raw_V, raw_b, input_U, input_V, input_b,
+                  forget_U, forget_V, forget_b, output_U, output_V, output_b,
+                  0);
+
+  auto X1 = model.MakeInput(i_X1);
+  auto X2 = model.MakeInput(i_X2);
+  auto HH = lstm.Transduce({X1, X2})[0];
+  Eigen::MatrixXd upper_right_H = HH.back().back()->Forward();
+
+  EXPECT_NEAR(upper_right_H(0, 0), 0.3596, 1e-4);
+}
+
+TEST(LSTM, GradientCheck) {
+  std::srand(std::time(0));
+  double epsilon = 1e-4;
+  size_t num_labels = 3;
+  size_t batch_size = 4;
+  size_t dim_observation = 2;
+  size_t dim_state = 3;
+  size_t num_layers = 3;
+
+  std::vector<size_t> labels;
+  std::default_random_engine gen;
+  std::uniform_int_distribution<size_t> dis(0, num_labels - 1);
+  for (size_t i = 0; i < batch_size; ++i) { labels.push_back(dis(gen)); }
+
+  autodiff::Model model;
+  size_t i_X1 = model.AddWeight(dim_observation, batch_size, "unit-variance");
+  size_t i_X2 = model.AddWeight(dim_observation, batch_size, "unit-variance");
+  size_t i_X3 = model.AddWeight(dim_observation, batch_size, "unit-variance");
+  autodiff::LSTM lstm(num_layers, dim_observation, dim_state, &model);
+  size_t i_W = model.AddWeight(num_labels, dim_state, "unit-variance");
+
+  auto compute_output = [&](Eigen::MatrixXd *X1_grad) {
+    auto X1 = model.MakeInput(i_X1);
+    auto X2 = model.MakeInput(i_X2);
+    auto X3 = model.MakeInput(i_X3);
+    auto H = lstm.Transduce({X1, X2, X3})[0].back().back();
+    auto W = model.MakeInput(i_W);
+    auto l = average(cross_entropy(W * H, labels));
+    double l_value = l->ForwardBackward();
+    if (X1_grad != nullptr) { *X1_grad = *X1->gradient(); }
+    return l_value;
+  };
+
+  Eigen::MatrixXd X1_grad;
+  double l0 = compute_output(&X1_grad);
+
+  for (size_t i = 0; i < X1_grad.rows(); ++i) {
+    for (size_t j = 0; j < X1_grad.cols(); ++j) {
+      (*model.weight(i_X1))(i, j) += epsilon;
+      double l1 = compute_output(nullptr);
+      EXPECT_NEAR((l1 - l0) / epsilon, X1_grad(i, j), 1e-5);
+      (*model.weight(i_X1))(i, j) -= epsilon;
+    }
+  }
 }
 
 int main(int argc, char** argv) {

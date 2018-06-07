@@ -8,6 +8,7 @@
 #define AUTODIFF_H_
 
 #include <Eigen/Dense>
+#include <unordered_set>
 
 #include "dag.h"
 #include "util_eigen.h"
@@ -390,29 +391,36 @@ class Model {
   // temporary weights.
   std::shared_ptr<Input> MakeTemporaryInput(size_t temporary_index);
 
+  // Clear intermediate quantities created in the current computation graph.
+  // This must be called at each computation during inference to free memory.
+  void ClearComputation();
+
   size_t NumWeights() { return weights_.size(); }
   size_t NumTemporaryWeights() { return temporary_weights_.size(); }
-  void CleanUpAfterUpdate();
 
   Eigen::MatrixXd *weight(size_t i) { return &weights_[i]; }
   Eigen::MatrixXd *gradient(size_t i) { return &gradients_[i]; }
   bool frozen(size_t i) { return frozen_[i]; }
-  std::vector<size_t> *update_list() { return &update_list_; }
+  std::unordered_set<size_t> *update_set() { return &update_set_; }
 
  private:
   std::vector<Eigen::MatrixXd> weights_;
   std::vector<Eigen::MatrixXd> gradients_;
   std::vector<bool> frozen_;
-  std::vector<size_t> update_list_;
+  std::unordered_set<size_t> update_set_;
   bool made_input_ = false;
 
   // Holder for temporary input variables that are not part of the model.
   std::vector<Eigen::MatrixXd> temporary_weights_;
   std::vector<Eigen::MatrixXd> temporary_gradients_;
   bool made_temporary_input_ = false;
+
+  // Holder for active variables in the current computation graph (to prevent
+  // them from going out of scope and dying).
+  std::vector<std::shared_ptr<Variable>> active_variables_;
 };
 
-// Abstract class: different model updating schemes.
+// Abstract class for different model updating schemes.
 class Updater {
  public:
   Updater(Model *model) : model_(model) {
@@ -459,6 +467,122 @@ class Adam: public Updater {
 
   std::vector<Eigen::ArrayXXd> first_moments_;
   std::vector<Eigen::ArrayXXd> second_moments_;
+};
+
+// Abstract class for recurrent neural networks (RNNs).
+class RNN {
+ public:
+  RNN(size_t num_layers, size_t dim_observation, size_t dim_state,
+      Model *model_address) :
+      num_layers_(num_layers), dim_observation_(dim_observation),
+      dim_state_(dim_state), model_address_(model_address) { }
+  virtual ~RNN() { }
+
+  // Computes state stack sequences (corresponding to different state types) for
+  // a sequence of observations. The output at indices [s][t][l] is the state of
+  // type s at position t in layer l. We use s=0 for the "default" state type.
+  std::vector<std::vector<std::vector<std::shared_ptr<Variable>>>> Transduce(
+      const std::vector<std::shared_ptr<Variable>> &observation_sequence) {
+    return Transduce(observation_sequence, {});
+  }
+  std::vector<std::vector<std::vector<std::shared_ptr<Variable>>>> Transduce(
+      const std::vector<std::shared_ptr<Variable>> &observation_sequence,
+      const std::vector<std::shared_ptr<Variable>> &initial_state_stack);
+
+  // Computes a new state stack for the given position.
+  void ComputeNewStateStack(
+      const std::vector<std::shared_ptr<Variable>> &observation_sequence,
+      const std::vector<std::shared_ptr<Variable>> &initial_state_stack,
+      size_t position,
+      std::vector<std::vector<std::vector<std::shared_ptr<Variable>>>>
+      *state_stack_sequences);
+
+  // Computes a new state for the given position and layer.
+  virtual void ComputeNewState(
+      const std::vector<std::shared_ptr<Variable>> &observation_sequence,
+      const std::vector<std::shared_ptr<Variable>> &initial_state_stack,
+      size_t position, size_t layer,
+      std::vector<std::vector<std::vector<std::shared_ptr<Variable>>>>
+      *state_stack_sequences) = 0;
+
+ protected:
+  // Gets previous state given a particular state stack sequence (nullptr if
+  // none).
+  const std::shared_ptr<Variable> &GetPreviousState(
+      size_t position, size_t layer,
+      const std::vector<std::shared_ptr<Variable>> &initial_state_stack,
+      const std::vector<std::vector<std::shared_ptr<Variable>>>
+      &particular_state_stack_sequence);
+
+  size_t num_layers_;
+  size_t dim_observation_;
+  size_t dim_state_;
+  size_t num_state_types_ = 1;
+  Model *model_address_;
+};
+
+// Simple RNN.
+class SimpleRNN: public RNN {
+ public:
+  SimpleRNN(size_t num_layers, size_t dim_observation, size_t dim_state,
+            Model *model_address);
+
+  void ComputeNewState(
+      const std::vector<std::shared_ptr<Variable>> &observation_sequence,
+      const std::vector<std::shared_ptr<Variable>> &initial_state_stack,
+      size_t position, size_t layer,
+      std::vector<std::vector<std::vector<std::shared_ptr<Variable>>>>
+      *state_stack_sequences) override;
+
+  void SetWeights(const Eigen::MatrixXd &U_weight,
+                  const Eigen::MatrixXd &V_weight,
+                  const Eigen::MatrixXd &b_weight, size_t layer);
+
+ protected:
+  std::vector<size_t> U_indices_;
+  std::vector<size_t> V_indices_;
+  std::vector<size_t> b_indices_;
+};
+
+// Long short-term memory (LSTM).
+class LSTM: public RNN {
+ public:
+  LSTM(size_t num_layers, size_t dim_x, size_t dim_h, Model *model_address);
+
+  void ComputeNewState(
+      const std::vector<std::shared_ptr<Variable>> &observation_sequence,
+      const std::vector<std::shared_ptr<Variable>> &initial_state_stack,
+      size_t position, size_t layer,
+      std::vector<std::vector<std::vector<std::shared_ptr<Variable>>>>
+      *state_stack_sequences) override;
+
+  void SetWeights(const Eigen::MatrixXd &raw_U_weight,
+                  const Eigen::MatrixXd &raw_V_weight,
+                  const Eigen::MatrixXd &raw_b_weight,
+                  const Eigen::MatrixXd &input_U_weight,
+                  const Eigen::MatrixXd &input_V_weight,
+                  const Eigen::MatrixXd &input_b_weight,
+                  const Eigen::MatrixXd &forget_U_weight,
+                  const Eigen::MatrixXd &forget_V_weight,
+                  const Eigen::MatrixXd &forget_b_weight,
+                  const Eigen::MatrixXd &output_U_weight,
+                  const Eigen::MatrixXd &output_V_weight,
+                  const Eigen::MatrixXd &output_b_weight,
+                  size_t layer);
+
+ protected:
+  std::vector<size_t> raw_U_indices_;
+  std::vector<size_t> raw_V_indices_;
+  std::vector<size_t> raw_b_indices_;
+  std::vector<size_t> input_U_indices_;
+  std::vector<size_t> input_V_indices_;
+  std::vector<size_t> input_b_indices_;
+  std::vector<size_t> forget_U_indices_;
+  std::vector<size_t> forget_V_indices_;
+  std::vector<size_t> forget_b_indices_;
+  std::vector<size_t> output_U_indices_;
+  std::vector<size_t> output_V_indices_;
+  std::vector<size_t> output_b_indices_;
 };
 
 }  // namespace autodiff

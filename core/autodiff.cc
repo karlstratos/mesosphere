@@ -520,8 +520,9 @@ std::shared_ptr<Input> Model::MakeInput(size_t i) {
   gradients_[i] = Eigen::MatrixXd::Zero(weights_[i].rows(), weights_[i].cols());
   X->set_value_address(&weights_[i]);
   X->set_gradient_address(&gradients_[i]);
-  if (!frozen_[i]) { update_list_.push_back(i); }
+  if (!frozen_[i]) { update_set_.insert(i); }
   made_input_ = true;
+  active_variables_.push_back(X);
   return X;
 }
 
@@ -533,23 +534,25 @@ std::shared_ptr<Input> Model::MakeTemporaryInput(size_t temporary_index) {
   X->set_value_address(&temporary_weights_[temporary_index]);
   X->set_gradient_address(&temporary_gradients_[temporary_index]);
   made_temporary_input_ = true;
+  active_variables_.push_back(X);
   return X;
 }
 
-void Model::CleanUpAfterUpdate() {
-  update_list_.clear();
+void Model::ClearComputation() {
+  update_set_.clear();
   temporary_weights_.clear();
   temporary_gradients_.clear();
   made_input_ = false;
   made_temporary_input_ = false;
+  active_variables_.clear();  // Will now free active variables out of scope.
 }
 
 void Updater::UpdateWeights() {
-  for (size_t i : *model_->update_list()) {
+  for (size_t i : *model_->update_set()) {
     UpdateWeight(i);
     ++num_updates_[i];
   }
-  model_->CleanUpAfterUpdate();
+  model_->ClearComputation();
 }
 
 Adam::Adam(Model *model, double step_size) : Updater(model) {
@@ -586,6 +589,221 @@ void Adam::UpdateWeight(size_t i) {
       step_size_ * sqrt(1 - pow(b2_, update_num)) / (1 - pow(b1_, update_num));
   model_->weight(i)->array() -=
       update_rate * (first_moments_[i] / (second_moments_[i].sqrt() + ep_));
+}
+
+std::vector<std::vector<std::vector<std::shared_ptr<Variable>>>> RNN::Transduce(
+    const std::vector<std::shared_ptr<Variable>> &observation_sequence,
+    const std::vector<std::shared_ptr<Variable>> &initial_state_stack) {
+  std::vector<std::vector<std::vector<std::shared_ptr<Variable>>>>
+      state_stack_sequences(num_state_types_);
+  for (size_t position = 0; position < observation_sequence.size();
+       ++position) {
+    // We pass all state stack sequences so that we can access them as we wish.
+    ComputeNewStateStack(observation_sequence, initial_state_stack, position,
+                         &state_stack_sequences);
+  }
+  return state_stack_sequences;
+}
+
+void RNN::ComputeNewStateStack(
+    const std::vector<std::shared_ptr<Variable>> &observation_sequence,
+    const std::vector<std::shared_ptr<Variable>> &initial_state_stack,
+    size_t position,
+    std::vector<std::vector<std::vector<std::shared_ptr<Variable>>>>
+    *state_stack_sequences) {
+  for (size_t state_type = 0; state_type < num_state_types_; ++state_type) {
+    state_stack_sequences->at(state_type).resize(position + 1);
+  }
+
+  // Compute new states for all layers at this position (for all state types).
+  for (size_t layer = 0; layer < num_layers_; ++layer) {
+    ComputeNewState(observation_sequence, initial_state_stack, position, layer,
+                    state_stack_sequences);
+  }
+}
+
+const std::shared_ptr<Variable> &RNN::GetPreviousState(
+    size_t position, size_t layer,
+    const std::vector<std::shared_ptr<Variable>> &initial_state_stack,
+    const std::vector<std::vector<std::shared_ptr<Variable>>>
+    &particular_state_stack_sequence) {
+  if (position > 0) {
+    return particular_state_stack_sequence[position - 1][layer];
+  } else if (initial_state_stack.size() > 0) {
+    return initial_state_stack[layer];
+  } else {
+    static const std::shared_ptr<Variable> none = nullptr;
+    return none;
+  }
+}
+
+SimpleRNN::SimpleRNN(size_t num_layers, size_t dim_observation,
+                     size_t dim_state, Model *model_address) :
+    RNN(num_layers, dim_observation, dim_state, model_address) {
+  num_state_types_ = 1;
+  for (size_t layer = 0; layer < num_layers_; ++layer) {
+    size_t dim_in = (layer == 0) ? dim_observation_ : dim_state_;
+    U_indices_.push_back(model_address_->AddWeight(dim_state_, dim_in,
+                                                   "unit-variance"));
+    V_indices_.push_back(model_address_->AddWeight(dim_state_, dim_state,
+                                                   "unit-variance"));
+    b_indices_.push_back(model_address_->AddWeight(dim_state_, 1,
+                                                   "unit-variance"));
+  }
+}
+
+void SimpleRNN::ComputeNewState(
+    const std::vector<std::shared_ptr<Variable>> &observation_sequence,
+    const std::vector<std::shared_ptr<Variable>> &initial_state_stack,
+    size_t position, size_t layer,
+    std::vector<std::vector<std::vector<std::shared_ptr<Variable>>>>
+    *state_stack_sequences)  {
+  auto *state_stack_sequence = &state_stack_sequences->at(0);
+  const auto &O = (layer == 0) ?
+                  observation_sequence[position] :
+                  state_stack_sequence->at(position).back();
+  const auto &previous_H = GetPreviousState(position, layer,
+                                            initial_state_stack,
+                                            *state_stack_sequence);
+
+  const auto &U = model_address_->MakeInput(U_indices_[layer]);
+  const auto &V = model_address_->MakeInput(V_indices_[layer]);
+  const auto &b = model_address_->MakeInput(b_indices_[layer]);
+
+  auto new_H = (previous_H) ?
+               tanh(U * O + b + V * previous_H) :
+               tanh(U * O + b);
+  state_stack_sequence->at(position).push_back(new_H);
+}
+
+void SimpleRNN::SetWeights(const Eigen::MatrixXd &U_weight,
+                           const Eigen::MatrixXd &V_weight,
+                           const Eigen::MatrixXd &b_weight, size_t layer) {
+  *model_address_->weight(U_indices_[layer]) = U_weight;
+  *model_address_->weight(V_indices_[layer]) = V_weight;
+  *model_address_->weight(b_indices_[layer]) = b_weight;
+}
+
+LSTM::LSTM(size_t num_layers, size_t dim_observation, size_t dim_state,
+           Model *model_address) :
+    RNN(num_layers, dim_observation, dim_state, model_address) {
+  num_state_types_ = 2;
+  for (size_t layer = 0; layer < num_layers_; ++layer) {
+    size_t dim_in = (layer == 0) ? dim_observation_ : dim_state_;
+    raw_U_indices_.push_back(
+        model_address_->AddWeight(dim_state_, dim_in, "unit-variance"));
+    raw_V_indices_.push_back(
+        model_address_->AddWeight(dim_state_, dim_state_, "unit-variance"));
+    raw_b_indices_.push_back(
+        model_address_->AddWeight(dim_state_, 1, "unit-variance"));
+    input_U_indices_.push_back(
+        model_address_->AddWeight(dim_state_, dim_in, "unit-variance"));
+    input_V_indices_.push_back(
+        model_address_->AddWeight(dim_state_, dim_state_, "unit-variance"));
+    input_b_indices_.push_back(
+        model_address_->AddWeight(dim_state_, 1, "unit-variance"));
+    forget_U_indices_.push_back(
+        model_address_->AddWeight(dim_state_, dim_in, "unit-variance"));
+    forget_V_indices_.push_back(
+        model_address_->AddWeight(dim_state_, dim_state_, "unit-variance"));
+    forget_b_indices_.push_back(
+        model_address_->AddWeight(dim_state_, 1, "unit-variance"));
+    output_U_indices_.push_back(
+        model_address_->AddWeight(dim_state_, dim_in, "unit-variance"));
+    output_V_indices_.push_back(
+        model_address_->AddWeight(dim_state_, dim_state_, "unit-variance"));
+    output_b_indices_.push_back(
+        model_address_->AddWeight(dim_state_, 1, "unit-variance"));
+  }
+}
+
+void LSTM::ComputeNewState(
+    const std::vector<std::shared_ptr<Variable>> &observation_sequence,
+    const std::vector<std::shared_ptr<Variable>> &initial_state_stack,
+    size_t position, size_t layer,
+    std::vector<std::vector<std::vector<std::shared_ptr<Variable>>>>
+    *state_stack_sequences)  {
+  auto *state_stack_sequence = &state_stack_sequences->at(0);
+  auto *cell_stack_sequence = &state_stack_sequences->at(1);
+  const auto &O = (layer == 0) ?
+                  observation_sequence[position] :
+                  state_stack_sequence->at(position).back();
+  const auto &previous_H = GetPreviousState(position, layer,
+                                            initial_state_stack,
+                                            *state_stack_sequence);
+
+  const auto &raw_U = model_address_->MakeInput(raw_U_indices_[layer]);
+  const auto &raw_V = model_address_->MakeInput(raw_V_indices_[layer]);
+  const auto &raw_b = model_address_->MakeInput(raw_b_indices_[layer]);
+
+  auto raw_H = (previous_H) ?
+               tanh(raw_U * O + raw_b + raw_V * previous_H) :
+               tanh(raw_U * O + raw_b);
+
+  const auto &input_U = model_address_->MakeInput(input_U_indices_[layer]);
+  const auto &input_V = model_address_->MakeInput(input_V_indices_[layer]);
+  const auto &input_b = model_address_->MakeInput(input_b_indices_[layer]);
+
+  auto input_gate = (previous_H) ?
+                    logistic(input_U * O + input_b + input_V * previous_H) :
+                    logistic(input_U * O + input_b);
+
+  auto gated_H = input_gate % raw_H;
+
+  std::shared_ptr<Variable> new_C;
+  if (previous_H) {
+    const auto &forget_U = model_address_->MakeInput(forget_U_indices_[layer]);
+    const auto &forget_V = model_address_->MakeInput(forget_V_indices_[layer]);
+    const auto &forget_b = model_address_->MakeInput(forget_b_indices_[layer]);
+
+    auto forget_gate =
+        logistic(forget_U * O + forget_b + forget_V * previous_H);
+    auto gated_previous_C =
+        forget_gate % cell_stack_sequence->at(position - 1)[layer];
+    new_C = gated_H + gated_previous_C;
+  } else {
+    new_C = gated_H;
+  }
+
+  const auto &output_U = model_address_->MakeInput(output_U_indices_[layer]);
+  const auto &output_V = model_address_->MakeInput(output_V_indices_[layer]);
+  const auto &output_b = model_address_->MakeInput(output_b_indices_[layer]);
+
+  auto output_gate = (previous_H) ?
+                     logistic(output_U * O + output_b + output_V * previous_H) :
+                     logistic(output_U * O + output_b);
+
+  auto new_H = output_gate % tanh(new_C);
+
+  cell_stack_sequence->at(position).push_back(new_C);
+  state_stack_sequence->at(position).push_back(new_H);
+}
+
+void LSTM::SetWeights(const Eigen::MatrixXd &raw_U_weight,
+                      const Eigen::MatrixXd &raw_V_weight,
+                      const Eigen::MatrixXd &raw_b_weight,
+                      const Eigen::MatrixXd &input_U_weight,
+                      const Eigen::MatrixXd &input_V_weight,
+                      const Eigen::MatrixXd &input_b_weight,
+                      const Eigen::MatrixXd &forget_U_weight,
+                      const Eigen::MatrixXd &forget_V_weight,
+                      const Eigen::MatrixXd &forget_b_weight,
+                      const Eigen::MatrixXd &output_U_weight,
+                      const Eigen::MatrixXd &output_V_weight,
+                      const Eigen::MatrixXd &output_b_weight,
+                      size_t layer) {
+  *model_address_->weight(raw_U_indices_[layer]) = raw_U_weight;
+  *model_address_->weight(raw_V_indices_[layer]) = raw_V_weight;
+  *model_address_->weight(raw_b_indices_[layer]) = raw_b_weight;
+  *model_address_->weight(input_U_indices_[layer]) = input_U_weight;
+  *model_address_->weight(input_V_indices_[layer]) = input_V_weight;
+  *model_address_->weight(input_b_indices_[layer]) = input_b_weight;
+  *model_address_->weight(forget_U_indices_[layer]) = forget_U_weight;
+  *model_address_->weight(forget_V_indices_[layer]) = forget_V_weight;
+  *model_address_->weight(forget_b_indices_[layer]) = forget_b_weight;
+  *model_address_->weight(output_U_indices_[layer]) = output_U_weight;
+  *model_address_->weight(output_V_indices_[layer]) = output_V_weight;
+  *model_address_->weight(output_b_indices_[layer]) = output_b_weight;
 }
 
 }  // namespace autodiff
