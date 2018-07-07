@@ -12,7 +12,7 @@
 
 namespace util_eigen {
 
-// Construct an Eigen matrix from std vectors representing rows.
+// Constructs an Eigen matrix from std vectors representing rows.
 inline Eigen::MatrixXd construct_matrix_from_rows(
     const std::vector<std::vector<double>> &rows) {
   size_t num_columns = rows[0].size();

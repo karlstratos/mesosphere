@@ -85,10 +85,10 @@ int main (int argc, char* argv[]) {
   std::unique_ptr<autodiff::RNN> rnn;
   if (rnn_type == "simple") {
     rnn = cc14::make_unique<autodiff::SimpleRNN>(num_layers, xdim, hdim,
-                                                   &model);
+                                                 &model);
   } else if (rnn_type == "lstm") {
     rnn = cc14::make_unique<autodiff::LSTM>(num_layers, xdim, hdim,
-                                              &model);
+                                            &model);
   } else {
     ASSERT(false, "Unknown RNN " << rnn_type);
   }

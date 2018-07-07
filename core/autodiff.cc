@@ -750,7 +750,8 @@ void LSTM::ComputeNewState(
 
   auto gated_H = input_gate % raw_H;
 
-  std::shared_ptr<Variable> new_C;
+  auto new_C = gated_H;
+
   if (previous_H) {
     const auto &forget_U = model_address_->MakeInput(forget_U_indices_[layer]);
     const auto &forget_V = model_address_->MakeInput(forget_V_indices_[layer]);
@@ -760,9 +761,8 @@ void LSTM::ComputeNewState(
         logistic(forget_U * O + forget_b + forget_V * previous_H);
     auto gated_previous_C =
         forget_gate % cell_stack_sequence->at(position - 1)[layer];
-    new_C = gated_H + gated_previous_C;
-  } else {
-    new_C = gated_H;
+
+    new_C = new_C + gated_previous_C;
   }
 
   const auto &output_U = model_address_->MakeInput(output_U_indices_[layer]);

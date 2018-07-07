@@ -4,6 +4,24 @@
 
 #include "../autodiff.h"
 
+TEST(OverwriteSharedPointers, Test) {
+  autodiff::Model model;
+  size_t i_x = model.AddWeight({{1}});
+  size_t i_y = model.AddWeight({{2}});
+
+  const auto &x = model.MakeInput(i_x);
+  const auto &y = model.MakeInput(i_y);
+  auto z = x + y;
+  z = z + y;
+  z = z + x;
+  z = z * y;  // (((x + y) + y) + x) * y = 2xy + 2y^2
+  double result = z->ForwardBackward();
+
+  EXPECT_EQ(12, result);
+  EXPECT_EQ(4, (*x->gradient())(0));
+  EXPECT_EQ(10, (*y->gradient())(0));
+}
+
 TEST(Add, Test0) {
   autodiff::Model model;
   size_t i_x = model.AddWeight({{1}});
