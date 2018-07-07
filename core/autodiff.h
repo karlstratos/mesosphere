@@ -570,6 +570,25 @@ class LSTM: public RNN {
                   const Eigen::MatrixXd &output_b_weight,
                   size_t layer);
 
+  void UseDropout(double dropout_rate, size_t random_seed) {
+    dropout_rate_ = dropout_rate;
+    gen_.seed(random_seed);
+  }
+  void StopDropout() {
+    dropout_rate_ = 0.0;
+    NullifyDropoutWeights();
+  }
+  void NullifyDropoutWeights() {
+    for (size_t layer = 0; layer < num_layers_; ++layer) {
+      SetDropoutWeights(Eigen::MatrixXd::Zero(0, 0),
+                        Eigen::MatrixXd::Zero(0, 0), layer);
+    }
+  }
+  void SetDropoutWeights(const Eigen::MatrixXd &observation_mask_weight,
+                         const Eigen::MatrixXd &state_mask_weight,
+                         size_t layer);
+  void ComputeDropoutWeights(size_t batch_size);
+
  protected:
   std::vector<size_t> raw_U_indices_;
   std::vector<size_t> raw_V_indices_;
@@ -583,6 +602,13 @@ class LSTM: public RNN {
   std::vector<size_t> output_U_indices_;
   std::vector<size_t> output_V_indices_;
   std::vector<size_t> output_b_indices_;
+
+  // Dropout masks are dummy parameters that do not participate in gradient
+  // updates. Their masking weights will be computed dynamically per sequence.
+  std::vector<size_t> observation_mask_indices_;
+  std::vector<size_t> state_mask_indices_;
+  std::mt19937 gen_;
+  double dropout_rate_ = 0.0;
 };
 
 }  // namespace autodiff

@@ -47,6 +47,8 @@ inline Eigen::MatrixXd initialize(size_t num_rows, size_t num_columns,
   if (method == "unit-variance") {
     W = sqrt(3.0 / num_columns) * Eigen::MatrixXd::Random(num_rows,
                                                           num_columns);
+  } else if (method == "zero") {
+    W = Eigen::MatrixXd::Zero(num_rows, num_columns);
   } else {
     ASSERT(false, "Unknown initialization method: " << method);
   }
