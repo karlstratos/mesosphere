@@ -473,52 +473,58 @@ class Adam: public Updater {
 class RNN {
  public:
   RNN(size_t num_layers, size_t dim_observation, size_t dim_state,
-      Model *model_address) :
-      num_layers_(num_layers), dim_observation_(dim_observation),
-      dim_state_(dim_state), model_address_(model_address) { }
+      size_t num_state_types, Model *model_address);
   virtual ~RNN() { }
 
-  // Computes state stack sequences (corresponding to different state types) for
-  // a sequence of observations. The output at indices [s][t][l] is the state of
-  // type s at position t in layer l. We use s=0 for the "default" state type.
+  // Computes a sequence of state stacks (each state consisting of different
+  // types) for a sequence of observations. The output at indices [t][l][s] is
+  // the state at position t in layer l of type s (default state type s=0).
   std::vector<std::vector<std::vector<std::shared_ptr<Variable>>>> Transduce(
       const std::vector<std::shared_ptr<Variable>> &observation_sequence) {
     return Transduce(observation_sequence, {});
   }
   std::vector<std::vector<std::vector<std::shared_ptr<Variable>>>> Transduce(
       const std::vector<std::shared_ptr<Variable>> &observation_sequence,
-      const std::vector<std::shared_ptr<Variable>> &initial_state_stack);
+      const std::vector<std::vector<std::shared_ptr<Variable>>>
+      &initial_state_stack);
 
-  // Computes a new state stack for the given position.
-  void ComputeNewStateStack(
-      const std::vector<std::shared_ptr<Variable>> &observation_sequence,
-      const std::vector<std::shared_ptr<Variable>> &initial_state_stack,
-      size_t position,
-      std::vector<std::vector<std::vector<std::shared_ptr<Variable>>>>
-      *state_stack_sequences);
+  // Computes a new state stack. The output at indices [l][s] is the state in
+  // layer l of type s.
+  std::vector<std::vector<std::shared_ptr<Variable>>> ComputeNewStateStack(
+      const std::shared_ptr<Variable> &observation) {
+    return ComputeNewStateStack(observation, {}, true);
+  }
+  std::vector<std::vector<std::shared_ptr<Variable>>> ComputeNewStateStack(
+      const std::shared_ptr<Variable> &observation,
+      const std::vector<std::vector<std::shared_ptr<Variable>>>
+      &previous_state_stack, bool is_beginning=false);
 
-  // Computes a new state for the given position and layer.
-  virtual void ComputeNewState(
-      const std::vector<std::shared_ptr<Variable>> &observation_sequence,
-      const std::vector<std::shared_ptr<Variable>> &initial_state_stack,
-      size_t position, size_t layer,
-      std::vector<std::vector<std::vector<std::shared_ptr<Variable>>>>
-      *state_stack_sequences) = 0;
+  // Computes a new state for a particular layer l. The output at index [s] is
+  // the state in layer l of type s (default state type s=0).
+  virtual std::vector<std::shared_ptr<Variable>> ComputeNewState(
+      const std::shared_ptr<Variable> &observation,
+      const std::vector<std::shared_ptr<Variable>> &previous_state,
+      size_t layer) = 0;
+
+  void UseDropout(double dropout_rate, size_t random_seed);
+  void StopDropout() { dropout_rate_ = 0.0; }
+  void ComputeDropoutWeights();
 
  protected:
-  // Gets previous state given a particular state stack sequence (nullptr if
-  // none).
-  const std::shared_ptr<Variable> &GetPreviousState(
-      size_t position, size_t layer,
-      const std::vector<std::shared_ptr<Variable>> &initial_state_stack,
-      const std::vector<std::vector<std::shared_ptr<Variable>>>
-      &particular_state_stack_sequence);
-
   size_t num_layers_;
   size_t dim_observation_;
   size_t dim_state_;
-  size_t num_state_types_ = 1;
+  size_t num_state_types_;
+  size_t batch_size_;
   Model *model_address_;
+
+  std::mt19937 gen_;  // For dropout
+  double dropout_rate_ = 0.0;
+
+  // Indices for constant weights
+  size_t initial_state_index_;  // Zero weight: used for all initial states
+  std::vector<size_t> observation_mask_indices_;
+  std::vector<size_t> state_mask_indices_;
 };
 
 // Simple RNN.
@@ -527,12 +533,10 @@ class SimpleRNN: public RNN {
   SimpleRNN(size_t num_layers, size_t dim_observation, size_t dim_state,
             Model *model_address);
 
-  void ComputeNewState(
-      const std::vector<std::shared_ptr<Variable>> &observation_sequence,
-      const std::vector<std::shared_ptr<Variable>> &initial_state_stack,
-      size_t position, size_t layer,
-      std::vector<std::vector<std::vector<std::shared_ptr<Variable>>>>
-      *state_stack_sequences) override;
+  std::vector<std::shared_ptr<Variable>> ComputeNewState(
+      const std::shared_ptr<Variable> &observation,
+      const std::vector<std::shared_ptr<Variable>> &previous_state,
+      size_t layer) override;
 
   void SetWeights(const Eigen::MatrixXd &U_weight,
                   const Eigen::MatrixXd &V_weight,
@@ -549,12 +553,10 @@ class LSTM: public RNN {
  public:
   LSTM(size_t num_layers, size_t dim_x, size_t dim_h, Model *model_address);
 
-  void ComputeNewState(
-      const std::vector<std::shared_ptr<Variable>> &observation_sequence,
-      const std::vector<std::shared_ptr<Variable>> &initial_state_stack,
-      size_t position, size_t layer,
-      std::vector<std::vector<std::vector<std::shared_ptr<Variable>>>>
-      *state_stack_sequences) override;
+  std::vector<std::shared_ptr<Variable>> ComputeNewState(
+      const std::shared_ptr<Variable> &observation,
+      const std::vector<std::shared_ptr<Variable>> &previous_state,
+      size_t layer) override;
 
   void SetWeights(const Eigen::MatrixXd &raw_U_weight,
                   const Eigen::MatrixXd &raw_V_weight,
@@ -570,25 +572,6 @@ class LSTM: public RNN {
                   const Eigen::MatrixXd &output_b_weight,
                   size_t layer);
 
-  void UseDropout(double dropout_rate, size_t random_seed) {
-    dropout_rate_ = dropout_rate;
-    gen_.seed(random_seed);
-  }
-  void StopDropout() {
-    dropout_rate_ = 0.0;
-    NullifyDropoutWeights();
-  }
-  void NullifyDropoutWeights() {
-    for (size_t layer = 0; layer < num_layers_; ++layer) {
-      SetDropoutWeights(Eigen::MatrixXd::Zero(0, 0),
-                        Eigen::MatrixXd::Zero(0, 0), layer);
-    }
-  }
-  void SetDropoutWeights(const Eigen::MatrixXd &observation_mask_weight,
-                         const Eigen::MatrixXd &state_mask_weight,
-                         size_t layer);
-  void ComputeDropoutWeights(size_t batch_size);
-
  protected:
   std::vector<size_t> raw_U_indices_;
   std::vector<size_t> raw_V_indices_;
@@ -602,13 +585,6 @@ class LSTM: public RNN {
   std::vector<size_t> output_U_indices_;
   std::vector<size_t> output_V_indices_;
   std::vector<size_t> output_b_indices_;
-
-  // Dropout masks are dummy parameters that do not participate in gradient
-  // updates. Their masking weights will be computed dynamically per sequence.
-  std::vector<size_t> observation_mask_indices_;
-  std::vector<size_t> state_mask_indices_;
-  std::mt19937 gen_;
-  double dropout_rate_ = 0.0;
 };
 
 }  // namespace autodiff

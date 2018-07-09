@@ -591,58 +591,93 @@ void Adam::UpdateWeight(size_t i) {
       update_rate * (first_moments_[i] / (second_moments_[i].sqrt() + ep_));
 }
 
+RNN::RNN(size_t num_layers, size_t dim_observation, size_t dim_state,
+         size_t num_state_types, Model *model_address) :
+    num_layers_(num_layers), dim_observation_(dim_observation),
+    dim_state_(dim_state), num_state_types_(num_state_types),
+    model_address_(model_address) {
+  // These constant weights will be set dynamically per sequence.
+  initial_state_index_ = model_address_->AddWeight(0, 0, "zero", true);
+  for (size_t layer = 0; layer < num_layers_; ++layer) {
+    observation_mask_indices_.push_back(model_address_->AddWeight(0, 0, "zero",
+                                                                  true));
+    state_mask_indices_.push_back(model_address_->AddWeight(0, 0, "zero",
+                                                            true));
+  }
+}
+
 std::vector<std::vector<std::vector<std::shared_ptr<Variable>>>> RNN::Transduce(
     const std::vector<std::shared_ptr<Variable>> &observation_sequence,
-    const std::vector<std::shared_ptr<Variable>> &initial_state_stack) {
-  std::vector<std::vector<std::vector<std::shared_ptr<Variable>>>>
-      state_stack_sequences(num_state_types_);
-  for (size_t position = 0; position < observation_sequence.size();
-       ++position) {
-    // We pass all state stack sequences so that we can access them as we wish.
-    //
-    // TODO: this needs to take in one observation at a time with states so far!
-    ComputeNewStateStack(observation_sequence, initial_state_stack, position,
-                         &state_stack_sequences);
-  }
-  return state_stack_sequences;
-}
-
-void RNN::ComputeNewStateStack(
-    const std::vector<std::shared_ptr<Variable>> &observation_sequence,
-    const std::vector<std::shared_ptr<Variable>> &initial_state_stack,
-    size_t position,
-    std::vector<std::vector<std::vector<std::shared_ptr<Variable>>>>
-    *state_stack_sequences) {
-  for (size_t state_type = 0; state_type < num_state_types_; ++state_type) {
-    state_stack_sequences->at(state_type).resize(position + 1);
-  }
-
-  // Compute new states for all layers at this position (for all state types).
-  for (size_t layer = 0; layer < num_layers_; ++layer) {
-    ComputeNewState(observation_sequence, initial_state_stack, position, layer,
-                    state_stack_sequences);
-  }
-}
-
-const std::shared_ptr<Variable> &RNN::GetPreviousState(
-    size_t position, size_t layer,
-    const std::vector<std::shared_ptr<Variable>> &initial_state_stack,
     const std::vector<std::vector<std::shared_ptr<Variable>>>
-    &particular_state_stack_sequence) {
-  if (position > 0) {
-    return particular_state_stack_sequence[position - 1][layer];
-  } else if (initial_state_stack.size() > 0) {
-    return initial_state_stack[layer];
-  } else {
-    static const std::shared_ptr<Variable> none = nullptr;
-    return none;
+    &initial_state_stack) {
+  std::vector<std::vector<std::vector<std::shared_ptr<Variable>>>>
+      state_stack_sequence;
+  state_stack_sequence.push_back(
+      ComputeNewStateStack(observation_sequence[0], initial_state_stack, true));
+  for (size_t position = 1; position < observation_sequence.size();
+       ++position) {
+    state_stack_sequence.push_back(
+        ComputeNewStateStack(observation_sequence[position],
+                             state_stack_sequence.back()));
+  }
+  return state_stack_sequence;
+}
+
+std::vector<std::vector<std::shared_ptr<Variable>>> RNN::ComputeNewStateStack(
+    const std::shared_ptr<Variable> &observation,
+    const std::vector<std::vector<std::shared_ptr<Variable>>>
+    &previous_state_stack, bool is_beginning) {
+  ASSERT(is_beginning || previous_state_stack.size() > 0,
+         "No previous state stack given even though not beginning a sequence");
+  std::vector<std::shared_ptr<Variable>> initial_state;
+  if (is_beginning) {  // Starting a new sequence
+    batch_size_ = observation->NumColumns();
+    if (previous_state_stack.size() == 0) {
+        *model_address_->weight(initial_state_index_) =
+            Eigen::MatrixXd::Zero(dim_state_, batch_size_);
+        for (size_t i = 0; i < num_state_types_; ++i) {
+          initial_state.push_back(
+              model_address_->MakeInput(initial_state_index_));
+        }
+    }
+    if (dropout_rate_ > 0.0) { ComputeDropoutWeights(); }
+  }
+  std::vector<std::vector<std::shared_ptr<Variable>>> state_stack;
+  for (size_t layer = 0; layer < num_layers_; ++layer) {
+    const auto &O = (layer == 0) ? observation : state_stack.back()[0];
+    const auto &previous_state = (previous_state_stack.size() > 0) ?
+                                 previous_state_stack[layer] : initial_state;
+    state_stack.push_back(ComputeNewState(O, previous_state, layer));
+  }
+  return state_stack;
+}
+
+void RNN::UseDropout(double dropout_rate, size_t random_seed) {
+  dropout_rate_ = dropout_rate;
+  gen_.seed(random_seed);
+}
+
+void RNN::ComputeDropoutWeights() {
+  double keep_rate = 1.0 - dropout_rate_;
+  std::bernoulli_distribution d(keep_rate);
+  for (size_t layer = 0; layer < num_layers_; ++layer) {
+    size_t dim_in = (layer == 0) ? dim_observation_ : dim_state_;
+    Eigen::MatrixXd observation_bernoulli =
+        Eigen::MatrixXd::Zero(dim_in, batch_size_).unaryExpr(
+            [&](double x) { return static_cast<double>(d(gen_)); });
+    Eigen::MatrixXd state_bernoulli =
+        Eigen::MatrixXd::Zero(dim_state_, batch_size_).unaryExpr(
+            [&](double x) { return static_cast<double>(d(gen_)); });
+    *model_address_->weight(observation_mask_indices_[layer]) =
+        observation_bernoulli / keep_rate;
+    *model_address_->weight(state_mask_indices_[layer]) =
+        state_bernoulli / keep_rate;
   }
 }
 
 SimpleRNN::SimpleRNN(size_t num_layers, size_t dim_observation,
                      size_t dim_state, Model *model_address) :
-    RNN(num_layers, dim_observation, dim_state, model_address) {
-  num_state_types_ = 1;
+    RNN(num_layers, dim_observation, dim_state, 1, model_address) {
   for (size_t layer = 0; layer < num_layers_; ++layer) {
     size_t dim_in = (layer == 0) ? dim_observation_ : dim_state_;
     U_indices_.push_back(model_address_->AddWeight(dim_state_, dim_in,
@@ -654,28 +689,16 @@ SimpleRNN::SimpleRNN(size_t num_layers, size_t dim_observation,
   }
 }
 
-void SimpleRNN::ComputeNewState(
-    const std::vector<std::shared_ptr<Variable>> &observation_sequence,
-    const std::vector<std::shared_ptr<Variable>> &initial_state_stack,
-    size_t position, size_t layer,
-    std::vector<std::vector<std::vector<std::shared_ptr<Variable>>>>
-    *state_stack_sequences)  {
-  auto *state_stack_sequence = &state_stack_sequences->at(0);
-  const auto &O = (layer == 0) ?
-                  observation_sequence[position] :
-                  state_stack_sequence->at(position).back();
-  const auto &previous_H = GetPreviousState(position, layer,
-                                            initial_state_stack,
-                                            *state_stack_sequence);
-
+std::vector<std::shared_ptr<Variable>> SimpleRNN::ComputeNewState(
+    const std::shared_ptr<Variable> &observation,
+    const std::vector<std::shared_ptr<Variable>> &previous_state,
+    size_t layer) {
   const auto &U = model_address_->MakeInput(U_indices_[layer]);
   const auto &V = model_address_->MakeInput(V_indices_[layer]);
   const auto &b = model_address_->MakeInput(b_indices_[layer]);
 
-  auto new_H = (previous_H) ?
-               tanh(U * O + b + V * previous_H) :
-               tanh(U * O + b);
-  state_stack_sequence->at(position).push_back(new_H);
+  auto new_state = tanh(U * observation + V * previous_state[0] + b);
+  return {new_state};
 }
 
 void SimpleRNN::SetWeights(const Eigen::MatrixXd &U_weight,
@@ -688,8 +711,7 @@ void SimpleRNN::SetWeights(const Eigen::MatrixXd &U_weight,
 
 LSTM::LSTM(size_t num_layers, size_t dim_observation, size_t dim_state,
            Model *model_address) :
-    RNN(num_layers, dim_observation, dim_state, model_address) {
-  num_state_types_ = 2;
+    RNN(num_layers, dim_observation, dim_state, 2, model_address) {
   for (size_t layer = 0; layer < num_layers_; ++layer) {
     size_t dim_in = (layer == 0) ? dim_observation_ : dim_state_;
     raw_U_indices_.push_back(
@@ -716,84 +738,52 @@ LSTM::LSTM(size_t num_layers, size_t dim_observation, size_t dim_state,
         model_address_->AddWeight(dim_state_, dim_state_, "unit-variance"));
     output_b_indices_.push_back(
         model_address_->AddWeight(dim_state_, 1, "unit-variance"));
-
-    // Frozen mask weights to be set dynamically
-    observation_mask_indices_.push_back(model_address_->AddWeight(0, 0, "zero",
-                                                                  true));
-    state_mask_indices_.push_back(model_address_->AddWeight(0, 0, "zero",
-                                                            true));
   }
 }
 
-void LSTM::ComputeNewState(
-    const std::vector<std::shared_ptr<Variable>> &observation_sequence,
-    const std::vector<std::shared_ptr<Variable>> &initial_state_stack,
-    size_t position, size_t layer,
-    std::vector<std::vector<std::vector<std::shared_ptr<Variable>>>>
-    *state_stack_sequences)  {
-  auto *state_stack_sequence = &state_stack_sequences->at(0);
-  auto *cell_stack_sequence = &state_stack_sequences->at(1);
-  auto O = (layer == 0) ?
-           observation_sequence[position] :
-           state_stack_sequence->at(position).back();
-  auto previous_H = GetPreviousState(position, layer,
-                                     initial_state_stack,
-                                     *state_stack_sequence);
+std::vector<std::shared_ptr<Variable>> LSTM::ComputeNewState(
+    const std::shared_ptr<Variable> &observation,
+    const std::vector<std::shared_ptr<Variable>> &previous_state,
+    size_t layer) {
+  auto O = observation;
+  auto previous_H = previous_state[0];
 
   if (dropout_rate_ > 0.0) {
-    if (position == 0 && layer == 0) { ComputeDropoutWeights(O->NumColumns()); }
     O = model_address_->MakeInput(observation_mask_indices_[layer]) % O;
-    if (previous_H) {
-      previous_H = model_address_->MakeInput(state_mask_indices_[layer])
-                   % previous_H;
-    }
+    previous_H = model_address_->MakeInput(state_mask_indices_[layer])
+                 % previous_H;
   }
 
   const auto &raw_U = model_address_->MakeInput(raw_U_indices_[layer]);
   const auto &raw_V = model_address_->MakeInput(raw_V_indices_[layer]);
   const auto &raw_b = model_address_->MakeInput(raw_b_indices_[layer]);
 
-  auto raw_H = (previous_H) ?
-               tanh(raw_U * O + raw_b + raw_V * previous_H) :
-               tanh(raw_U * O + raw_b);
+  auto raw_H = tanh(raw_U * O + raw_V * previous_H + raw_b);
 
   const auto &input_U = model_address_->MakeInput(input_U_indices_[layer]);
   const auto &input_V = model_address_->MakeInput(input_V_indices_[layer]);
   const auto &input_b = model_address_->MakeInput(input_b_indices_[layer]);
 
-  auto input_gate = (previous_H) ?
-                    logistic(input_U * O + input_b + input_V * previous_H) :
-                    logistic(input_U * O + input_b);
-
+  auto input_gate = logistic(input_U * O + input_V * previous_H + input_b);
   auto gated_H = input_gate % raw_H;
 
-  auto new_C = gated_H;
+  const auto &previous_C = previous_state[1];
+  const auto &forget_U = model_address_->MakeInput(forget_U_indices_[layer]);
+  const auto &forget_V = model_address_->MakeInput(forget_V_indices_[layer]);
+  const auto &forget_b = model_address_->MakeInput(forget_b_indices_[layer]);
 
-  if (previous_H) {
-    const auto &forget_U = model_address_->MakeInput(forget_U_indices_[layer]);
-    const auto &forget_V = model_address_->MakeInput(forget_V_indices_[layer]);
-    const auto &forget_b = model_address_->MakeInput(forget_b_indices_[layer]);
-
-    auto forget_gate =
-        logistic(forget_U * O + forget_b + forget_V * previous_H);
-    auto gated_previous_C =
-        forget_gate % cell_stack_sequence->at(position - 1)[layer];
-
-    new_C = new_C + gated_previous_C;
-  }
+  auto forget_gate = logistic(forget_U * O + forget_V * previous_H + forget_b);
+  auto gated_previous_C = forget_gate % previous_C;
+  auto new_C = gated_H + gated_previous_C;
 
   const auto &output_U = model_address_->MakeInput(output_U_indices_[layer]);
   const auto &output_V = model_address_->MakeInput(output_V_indices_[layer]);
   const auto &output_b = model_address_->MakeInput(output_b_indices_[layer]);
 
-  auto output_gate = (previous_H) ?
-                     logistic(output_U * O + output_b + output_V * previous_H) :
-                     logistic(output_U * O + output_b);
-
+  auto output_gate = logistic(output_U * O + output_V * previous_H + output_b);
   auto new_H = output_gate % tanh(new_C);
 
-  cell_stack_sequence->at(position).push_back(new_C);
-  state_stack_sequence->at(position).push_back(new_H);
+  return {new_H, new_C};
 }
 
 void LSTM::SetWeights(const Eigen::MatrixXd &raw_U_weight,
@@ -821,31 +811,6 @@ void LSTM::SetWeights(const Eigen::MatrixXd &raw_U_weight,
   *model_address_->weight(output_U_indices_[layer]) = output_U_weight;
   *model_address_->weight(output_V_indices_[layer]) = output_V_weight;
   *model_address_->weight(output_b_indices_[layer]) = output_b_weight;
-}
-
-void LSTM::SetDropoutWeights(const Eigen::MatrixXd &observation_mask_weight,
-                             const Eigen::MatrixXd &state_mask_weight,
-                             size_t layer) {
-  *model_address_->weight(observation_mask_indices_[layer]) =
-      observation_mask_weight;
-  *model_address_->weight(state_mask_indices_[layer]) =
-      state_mask_weight;
-}
-
-void LSTM::ComputeDropoutWeights(size_t batch_size) {
-  double keep_rate = 1.0 - dropout_rate_;
-  std::bernoulli_distribution d(keep_rate);
-  for (size_t layer = 0; layer < num_layers_; ++layer) {
-    size_t dim_in = (layer == 0) ? dim_observation_ : dim_state_;
-    Eigen::MatrixXd observation_bernoulli =
-        Eigen::MatrixXd::Zero(dim_in, batch_size).unaryExpr(
-            [&](double x) { return static_cast<double>(d(gen_)); });
-    Eigen::MatrixXd state_bernoulli =
-        Eigen::MatrixXd::Zero(dim_state_, batch_size).unaryExpr(
-            [&](double x) { return static_cast<double>(d(gen_)); });
-    SetDropoutWeights(observation_bernoulli / keep_rate,
-                      state_bernoulli / keep_rate, layer);
-  }
 }
 
 }  // namespace autodiff

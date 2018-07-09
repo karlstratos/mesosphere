@@ -124,7 +124,7 @@ int main (int argc, char* argv[]) {
     for (size_t i = 0; i < next_length; ++i) {
       Xs.push_back(model.MakeInput(i_b));
     }
-    auto h_last = rnn->Transduce(Xs)[0].back().back();
+    auto h_last = rnn->Transduce(Xs).back().back()[0];
     auto W = model.MakeInput(i_W);
     auto h = W * h_last;
     auto l = binary_cross_entropy(h, {length == next_length});
@@ -158,7 +158,7 @@ int main (int argc, char* argv[]) {
           Xs.push_back(model.MakeInput(i_b));
         }
         auto W = model.MakeInput(i_W);
-        auto h = W * rnn->Transduce(Xs)[0].back().back();
+        auto h = W * rnn->Transduce(Xs).back().back()[0];
         auto l = binary_cross_entropy(h, {length == next_length});
         double prob = 1.0 / (1 + exp(-h->Forward()(0)));
         bool correct = ((length == next_length && prob >= 0.5) ||
@@ -192,7 +192,7 @@ int main (int argc, char* argv[]) {
 
     auto W = model.MakeInput(i_W);
     auto HHs = rnn->Transduce(Xs);
-    auto h = W * HHs[0].back().back();
+    auto h = W * HHs.back().back()[0];
     auto l = binary_cross_entropy(h, {length == next_length});
     double prob = 1.0 / (1 + exp(-h->Forward()(0)));
     bool correct = ((length == next_length && prob >= 0.5) ||
@@ -203,10 +203,11 @@ int main (int argc, char* argv[]) {
         length + next_length <= 27) {
       example_string = "a^" + std::to_string(length) + " "
                        "b^" + std::to_string(next_length);
-      auto HH = (rnn_type == "lstm") ? HHs[1] : HHs[0];
-      example_states.resize(hdim, HH.size());
-      for (size_t t = 0; t < HH.size(); ++t) {
-        Eigen::MatrixXd state_t_value = *HH[t].back()->value();
+      example_states.resize(hdim, HHs.size());
+      for (size_t t = 0; t < HHs.size(); ++t) {
+        const auto &HH = (rnn_type == "lstm") ?
+                         HHs[t].back()[1] : HHs[t].back()[0];
+        Eigen::MatrixXd state_t_value = *HH->value();
         for (size_t i = 0; i < state_t_value.rows(); ++i) {
           example_states(i, t) = state_t_value(i);
         }

@@ -364,8 +364,8 @@ TEST(SimpleRNN, Test) {
 
   auto X1 = model.MakeInput(i_X1);
   auto X2 = model.MakeInput(i_X2);
-  auto HH = srnn.Transduce({X1, X2})[0];
-  Eigen::MatrixXd upper_right_H = HH.back().back()->Forward();
+  auto HHs = srnn.Transduce({X1, X2});
+  Eigen::MatrixXd upper_right_H = HHs.back().back()[0]->Forward();
 
   EXPECT_NEAR(upper_right_H(0, 0), 0.9872, 1e-4);
   EXPECT_NEAR(upper_right_H(0, 1), 0.9870, 1e-4);
@@ -406,8 +406,8 @@ TEST(LSTM, Test) {
 
   auto X1 = model.MakeInput(i_X1);
   auto X2 = model.MakeInput(i_X2);
-  auto HH = lstm.Transduce({X1, X2})[0];
-  Eigen::MatrixXd upper_right_H = HH.back().back()->Forward();
+  auto HHs = lstm.Transduce({X1, X2});
+  Eigen::MatrixXd upper_right_H = HHs.back().back()[0]->Forward();
 
   EXPECT_NEAR(upper_right_H(0, 0), 0.3596, 1e-4);
 }
@@ -437,7 +437,7 @@ TEST(LSTM, GradientCheck) {
     auto X1 = model.MakeInput(i_X1);
     auto X2 = model.MakeInput(i_X2);
     auto X3 = model.MakeInput(i_X3);
-    auto H = lstm.Transduce({X1, X2, X3})[0].back().back();
+    auto H = lstm.Transduce({X1, X2, X3}).back().back()[0];
     auto W = model.MakeInput(i_W);
     auto l = average(cross_entropy(W * H, labels));
     double l_value = l->ForwardBackward();
