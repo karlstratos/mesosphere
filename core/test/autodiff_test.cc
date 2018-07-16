@@ -458,6 +458,19 @@ TEST(LSTM, GradientCheck) {
   }
 }
 
+TEST(LSTM, DropoutDoesNotCrash) {
+  autodiff::Model model;
+  size_t i_X1 = model.AddWeight(5, 10, "unit-variance");
+  size_t i_X2 = model.AddWeight(5, 10, "unit-variance");
+  autodiff::LSTM lstm(2, 5, 20, &model);
+  lstm.UseDropout(0.5, 42);
+
+  auto X1 = model.MakeInput(i_X1);
+  auto X2 = model.MakeInput(i_X2);
+  auto HHs = lstm.Transduce({X1, X2});
+  sum(HHs.back().back()[0])->ForwardBackward();
+}
+
 int main(int argc, char** argv) {
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();

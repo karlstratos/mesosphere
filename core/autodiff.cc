@@ -499,11 +499,11 @@ void FlagNegativeLogistic::PropagateGradient() {
 size_t Model::AddWeight(const Eigen::MatrixXd &weight, bool frozen) {
   ASSERT(!made_input_, "Cannot add new weights after creating input pointers "
          " because they corrupt addresses");
-  size_t i = weights_.size();
+  size_t weight_index = weights_.size();
   weights_.push_back(weight);
-  gradients_.resize(i + 1);
+  gradients_.push_back(Eigen::MatrixXd::Zero(weight.rows(), weight.cols()));
   frozen_.push_back(frozen);
-  return i;
+  return weight_index;
 }
 
 size_t Model::AddTemporaryWeight(const Eigen::MatrixXd &temporary_weight) {
@@ -511,16 +511,17 @@ size_t Model::AddTemporaryWeight(const Eigen::MatrixXd &temporary_weight) {
          "creating input pointers because they corrupt addresses");
   size_t temporary_index = temporary_weights_.size();
   temporary_weights_.push_back(temporary_weight);
-  temporary_gradients_.resize(temporary_index + 1);
+  temporary_gradients_.push_back(
+      Eigen::MatrixXd::Zero(temporary_weight.rows(), temporary_weight.cols()));
   return temporary_index;
 }
 
-std::shared_ptr<Input> Model::MakeInput(size_t i) {
+std::shared_ptr<Input> Model::MakeInput(size_t weight_index) {
   auto X = std::make_shared<autodiff::Input>();
-  gradients_[i] = Eigen::MatrixXd::Zero(weights_[i].rows(), weights_[i].cols());
-  X->set_value_address(&weights_[i]);
-  X->set_gradient_address(&gradients_[i]);
-  if (!frozen_[i]) { update_set_.insert(i); }
+  gradients_[weight_index].setZero();  // Clearing gradient
+  X->set_value_address(&weights_[weight_index]);
+  X->set_gradient_address(&gradients_[weight_index]);
+  if (!frozen_[weight_index]) { update_set_.insert(weight_index); }
   made_input_ = true;
   active_variables_.push_back(X);
   return X;
@@ -528,9 +529,7 @@ std::shared_ptr<Input> Model::MakeInput(size_t i) {
 
 std::shared_ptr<Input> Model::MakeTemporaryInput(size_t temporary_index) {
   auto X = std::make_shared<autodiff::Input>();
-  temporary_gradients_[temporary_index] =
-      Eigen::MatrixXd::Zero(temporary_weights_[temporary_index].rows(),
-                            temporary_weights_[temporary_index].cols());
+  temporary_gradients_[temporary_index].setZero();  // Clearing gradient
   X->set_value_address(&temporary_weights_[temporary_index]);
   X->set_gradient_address(&temporary_gradients_[temporary_index]);
   made_temporary_input_ = true;
@@ -548,9 +547,9 @@ void Model::ClearComputation() {
 }
 
 void Updater::UpdateWeights() {
-  for (size_t i : *model_->update_set()) {
-    UpdateWeight(i);
-    ++num_updates_[i];
+  for (size_t weight_index : *model_->update_set()) {
+    UpdateWeight(weight_index);
+    ++num_updates_[weight_index];
   }
   model_->ClearComputation();
 }
@@ -569,26 +568,32 @@ Adam::Adam(Model *model, double step_size, double b1, double b2,
 void Adam::InitializeMoments() {
   first_moments_.resize(model_->NumWeights());
   second_moments_.resize(model_->NumWeights());
-  for (size_t i = 0; i < model_->NumWeights(); ++i) {
-    size_t num_rows = model_->weight(i)->rows();
-    size_t num_columns = model_->weight(i)->cols();
-    if (!model_->frozen(i)) {
-      first_moments_[i] = Eigen::ArrayXXd::Zero(num_rows, num_columns);
-      second_moments_[i] = Eigen::ArrayXXd::Zero(num_rows, num_columns);
+  for (size_t weight_index = 0; weight_index < model_->NumWeights();
+       ++weight_index) {
+    size_t num_rows = model_->weight(weight_index)->rows();
+    size_t num_columns = model_->weight(weight_index)->cols();
+    if (!model_->frozen(weight_index)) {
+      first_moments_[weight_index] = Eigen::ArrayXXd::Zero(num_rows,
+                                                           num_columns);
+      second_moments_[weight_index] = Eigen::ArrayXXd::Zero(num_rows,
+                                                            num_columns);
     }
   }
 }
 
-void Adam::UpdateWeight(size_t i) {
-  size_t update_num = num_updates_[i] + 1;
-  first_moments_[i] = b1_ * first_moments_[i] +
-                      (1 - b1_) * model_->gradient(i)->array();
-  second_moments_[i] = b2_ * second_moments_[i] +
-                       (1 - b2_) * model_->gradient(i)->array().pow(2);
+void Adam::UpdateWeight(size_t weight_index) {
+  size_t update_num = num_updates_[weight_index] + 1;
+  first_moments_[weight_index] =
+      b1_ * first_moments_[weight_index] +
+      (1 - b1_) * model_->gradient(weight_index)->array();
+  second_moments_[weight_index] =
+      b2_ * second_moments_[weight_index] +
+      (1 - b2_) * model_->gradient(weight_index)->array().pow(2);
   double update_rate =
       step_size_ * sqrt(1 - pow(b2_, update_num)) / (1 - pow(b1_, update_num));
-  model_->weight(i)->array() -=
-      update_rate * (first_moments_[i] / (second_moments_[i].sqrt() + ep_));
+  model_->weight(weight_index)->array() -=
+      update_rate * (first_moments_[weight_index] /
+                     (second_moments_[weight_index].sqrt() + ep_));
 }
 
 RNN::RNN(size_t num_layers, size_t dim_observation, size_t dim_state,
@@ -596,7 +601,8 @@ RNN::RNN(size_t num_layers, size_t dim_observation, size_t dim_state,
     num_layers_(num_layers), dim_observation_(dim_observation),
     dim_state_(dim_state), num_state_types_(num_state_types),
     model_address_(model_address) {
-  // These constant weights will be set dynamically per sequence.
+  // These constant weights are added as empty values now but will be set
+  // dynamically per sequence. Note you must also shape their gradients then!
   initial_state_index_ = model_address_->AddWeight(0, 0, "zero", true);
   for (size_t layer = 0; layer < num_layers_; ++layer) {
     observation_mask_indices_.push_back(model_address_->AddWeight(0, 0, "zero",
@@ -635,6 +641,8 @@ std::vector<std::vector<std::shared_ptr<Variable>>> RNN::ComputeNewStateStack(
     if (previous_state_stack.size() == 0) {
         *model_address_->weight(initial_state_index_) =
             Eigen::MatrixXd::Zero(dim_state_, batch_size_);
+        *model_address_->gradient(initial_state_index_) =  // Shape!
+            Eigen::MatrixXd::Zero(dim_state_, batch_size_);
         for (size_t i = 0; i < num_state_types_; ++i) {
           initial_state.push_back(
               model_address_->MakeInput(initial_state_index_));
@@ -672,6 +680,10 @@ void RNN::ComputeDropoutWeights() {
         observation_bernoulli / keep_rate;
     *model_address_->weight(state_mask_indices_[layer]) =
         state_bernoulli / keep_rate;
+    *model_address_->gradient(observation_mask_indices_[layer]) =  // Shape!
+        Eigen::MatrixXd::Zero(dim_in, batch_size_);
+    *model_address_->gradient(state_mask_indices_[layer]) =
+        Eigen::MatrixXd::Zero(dim_state_, batch_size_);
   }
 }
 
@@ -693,11 +705,19 @@ std::vector<std::shared_ptr<Variable>> SimpleRNN::ComputeNewState(
     const std::shared_ptr<Variable> &observation,
     const std::vector<std::shared_ptr<Variable>> &previous_state,
     size_t layer) {
+  auto O = observation;
+  auto previous_H = previous_state[0];
+  if (dropout_rate_ > 0.0) {
+    O = model_address_->MakeInput(observation_mask_indices_[layer]) % O;
+    previous_H = model_address_->MakeInput(state_mask_indices_[layer])
+                 % previous_H;
+  }
+
   const auto &U = model_address_->MakeInput(U_indices_[layer]);
   const auto &V = model_address_->MakeInput(V_indices_[layer]);
   const auto &b = model_address_->MakeInput(b_indices_[layer]);
 
-  auto new_state = tanh(U * observation + V * previous_state[0] + b);
+  auto new_state = tanh(U * O + V * previous_H + b);
   return {new_state};
 }
 
@@ -753,7 +773,6 @@ std::vector<std::shared_ptr<Variable>> LSTM::ComputeNewState(
     previous_H = model_address_->MakeInput(state_mask_indices_[layer])
                  % previous_H;
   }
-
   const auto &raw_U = model_address_->MakeInput(raw_U_indices_[layer]);
   const auto &raw_V = model_address_->MakeInput(raw_V_indices_[layer]);
   const auto &raw_b = model_address_->MakeInput(raw_b_indices_[layer]);

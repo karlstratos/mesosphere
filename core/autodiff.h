@@ -128,6 +128,8 @@ class Variable: public dag::Node {
   Eigen::MatrixXd gradient_;
 };
 
+// TODO: Do I really need to maintain gradients outside?
+//
 // X: Input is a special variable. rather than maintaining its own value and
 // gradient, it only keeps the *addresses* of some external memory blocks whose
 // lifetime subsumes its own lifetime. These addresses must never be corrupted.
@@ -354,15 +356,19 @@ class FlagNegativeLogistic: public Variable {
   Eigen::MatrixXd logistic_cache_;
 };
 
-// A Model is a set of weights (aka. parameters). For convenience, it provides
-// functionalities to handle gradients (for a single computation graph). Each
-// time it creates an Input variable, it ensures that the corresponding gradient
-// is initialized to zero internally. If you wish to work with multiple
-// computation graphs at the same time, you should explicitly handle gradients
-// yourself outside the model.
+// A model is a set of weights which perform certain computations.
+// To use backpropagation to optimize these weights, their gradients must be
+// maintained properly throughout training. This class provides a convenient
+// encapsulation of the training details by maintaining, correctly shaping, and
+// initializing gradients; it also maintains active shared pointers to prevent
+// them from going out of scope.
+//
+// Note that this is for a single computation graph: if you want to work with
+// multiple computation graphs sharing a model, you need to handle these details
+// explicitly yourself.
 class Model {
  public:
-  // Adds a weight and returns its index.
+  // Adds a weight and its gradient to holders, returns its index.
   size_t AddWeight(size_t num_rows, size_t num_columns,
                    std::string initialization_method, bool frozen=false) {
     return AddWeight(util_eigen::initialize(num_rows, num_columns,
@@ -374,21 +380,19 @@ class Model {
   }
   size_t AddWeight(const Eigen::MatrixXd &weight, bool frozen=false);
 
-  // Adds a temporary weight used only for the current computation graph and
-  // returns its temporary index: the weight will be cleared after a model
-  // update.
+  // Adds a temporary weight and its temporary gradient to temporary holders
+  // (cleared when the current graph is gone), returns its temporary index.
   size_t AddTemporaryWeight(const std::vector<std::vector<double>> &rows) {
     return AddTemporaryWeight(util_eigen::construct_matrix_from_rows(rows));
   }
   size_t AddTemporaryWeight(const Eigen::MatrixXd &temporary_weight);
 
-  // Creates an Input pointer for a weight, initializes its gradient to zero,
-  // and includes the weight to the update list unless frozen.
-  std::shared_ptr<Input> MakeInput(size_t i);
+  // Creates an Input pointer for a weight, resets its gradient to zero,
+  // and includes the weight to the update set unless frozen.
+  std::shared_ptr<Input> MakeInput(size_t weight_index);
 
-  // Creates an Input pointer for a temporary weight, initializes its temporary
-  // gradient to zero. Note: do not mix indices between permanent weights and
-  // temporary weights.
+  // Creates an Input pointer for a temporary weight, resets its temporary
+  // gradient to zero. Do not mix indices between model/temporary weights!
   std::shared_ptr<Input> MakeTemporaryInput(size_t temporary_index);
 
   // Clear intermediate quantities created in the current computation graph.
@@ -398,9 +402,13 @@ class Model {
   size_t NumWeights() { return weights_.size(); }
   size_t NumTemporaryWeights() { return temporary_weights_.size(); }
 
-  Eigen::MatrixXd *weight(size_t i) { return &weights_[i]; }
-  Eigen::MatrixXd *gradient(size_t i) { return &gradients_[i]; }
-  bool frozen(size_t i) { return frozen_[i]; }
+  Eigen::MatrixXd *weight(size_t weight_index) {
+    return &weights_[weight_index];
+  }
+  Eigen::MatrixXd *gradient(size_t weight_index) {
+    return &gradients_[weight_index];
+  }
+  bool frozen(size_t weight_index) { return frozen_[weight_index]; }
   std::unordered_set<size_t> *update_set() { return &update_set_; }
 
  private:
@@ -431,7 +439,7 @@ class Updater {
   // Update model weights.
   void UpdateWeights();
 
-  virtual void UpdateWeight(size_t i) = 0;
+  virtual void UpdateWeight(size_t weight_index) = 0;
   double step_size() { return step_size_; }
   void set_step_size(double step_size) { step_size_ = step_size; }
 
@@ -446,8 +454,9 @@ class SimpleGradientDescent: public Updater {
  public:
   SimpleGradientDescent(Model *model, double step_size)
       : Updater(model) { step_size_ = step_size; }
-  void UpdateWeight(size_t i) override {
-    *model_->weight(i) -= step_size_ * (*model_->gradient(i));
+  void UpdateWeight(size_t weight_index) override {
+    *model_->weight(weight_index) -= step_size_ *
+                                     (*model_->gradient(weight_index));
   }
 };
 
@@ -456,7 +465,7 @@ class Adam: public Updater {
  public:
   Adam(Model *model, double step_size);
   Adam(Model *model, double step_size, double b1, double b2, double ep);
-  void UpdateWeight(size_t i) override;
+  void UpdateWeight(size_t weight_index) override;
 
  protected:
   void InitializeMoments();
@@ -521,8 +530,8 @@ class RNN {
   std::mt19937 gen_;  // For dropout
   double dropout_rate_ = 0.0;
 
-  // Indices for constant weights
-  size_t initial_state_index_;  // Zero weight: used for all initial states
+  // We dynamically set some constant weights per sequence.
+  size_t initial_state_index_;
   std::vector<size_t> observation_mask_indices_;
   std::vector<size_t> state_mask_indices_;
 };
