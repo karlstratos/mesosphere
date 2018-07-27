@@ -8,7 +8,7 @@
 #include <string>
 #include <vector>
 
-#include "../../core/autodiff.h"
+#include "../../core/neural.h"
 
 int main (int argc, char* argv[]) {
   size_t random_seed = std::time(0);
@@ -31,21 +31,21 @@ int main (int argc, char* argv[]) {
       display_options_and_quit = true;
     } else {
       std::cerr << "Invalid argument \"" << arg << "\": run the command with "
-           << "-h or --help to see possible arguments." << std::endl;
+                << "-h or --help to see possible arguments." << std::endl;
       exit(-1);
     }
   }
   if (display_options_and_quit) {
     std::cout << "--seed [" << random_seed << "]:        \t"
-         << "random seed" << std::endl;
+              << "random seed" << std::endl;
     std::cout << "--updater [" << updater << "]:   \t"
-         << "choice of updater" << std::endl;
+              << "choice of updater" << std::endl;
     std::cout << "--N [" << N << "]:\t"
-         << "number of samples" << std::endl;
+              << "number of samples" << std::endl;
     std::cout << "--step [" << step_size << "]:        \t"
-         << "step size for gradient descent" << std::endl;
+              << "step size for gradient descent" << std::endl;
     std::cout << "--help, -h:           \t"
-         << "show options and quit?" << std::endl;
+              << "show options and quit?" << std::endl;
     exit(0);
   }
 
@@ -61,15 +61,15 @@ int main (int argc, char* argv[]) {
   auto f = [&](double x) { return true_slope * x + true_bias; };
 
   // Model parameters
-  autodiff::Model model;
+  neural::Model model;
   size_t i_w = model.AddWeight(1, 1, "unit-variance");
   size_t i_b = model.AddWeight(1, 1, "unit-variance");
 
-  std::unique_ptr<autodiff::Updater> gd;
+  std::unique_ptr<neural::Updater> gd;
   if (updater == "sgd") {
-    gd = cc14::make_unique<autodiff::SimpleGradientDescent>(&model, step_size);
+    gd = cc14::make_unique<neural::SimpleGradientDescent>(&model, step_size);
   } else if (updater == "adam") {
-    gd = cc14::make_unique<autodiff::Adam>(&model, step_size);
+    gd = cc14::make_unique<neural::Adam>(&model, step_size);
   } else {
     ASSERT(false, "Unknown updater " << updater);
   }
@@ -104,8 +104,8 @@ int main (int argc, char* argv[]) {
     // l(w, b)     = (1/2) (y - y_pred)^2
     // dl(w, b)/db = y_pred - y
     // dl(w, b)/dw = (y_pred - y) x
-    double b_grad = (*y_pred->value())(0) - y_value;
-    double w_grad = ((*y_pred->value())(0) - y_value) * x_value;
+    double b_grad = y_pred->get_value(0) - y_value;
+    double w_grad = (y_pred->get_value(0) - y_value) * x_value;
 
     std::string msg = util_string::buffer_string(std::to_string(sample_num),
                                                  10, ' ', "left");
@@ -114,17 +114,17 @@ int main (int argc, char* argv[]) {
     msg += "y: " + util_string::buffer_string(
         util_string::to_string_with_precision(y_value, 2), 10, ' ', "left");
     msg += "y_pred: " + util_string::buffer_string(
-        util_string::to_string_with_precision((*y_pred->value())(0), 2), 10,
+        util_string::to_string_with_precision(y_pred->get_value(0), 2), 10,
         ' ', "left");
     msg += "w: " + util_string::buffer_string(
-        util_string::to_string_with_precision((*w->value())(0), 2), 10,
+        util_string::to_string_with_precision(w->get_value(0), 2), 10,
         ' ', "left");
     msg += "w grad: " + util_string::buffer_string(
         util_string::to_string_with_precision(w_grad, 2)
         + " (" + util_string::to_string_with_precision(w_grad, 2) + ")", 25,
         ' ', "left");
     msg += "b: " + util_string::buffer_string(
-        util_string::to_string_with_precision((*b->value())(0), 2), 10,
+        util_string::to_string_with_precision(b->get_value(0), 2), 10,
         ' ', "left");
     msg += "b grad: " + util_string::buffer_string(
         util_string::to_string_with_precision(b_grad, 2)

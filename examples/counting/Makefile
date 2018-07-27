@@ -30,14 +30,14 @@ clean:
 
 
 # Linking
-main: dir $(BUILD)/main.o $(BUILD)/autodiff.o $(BUILD)/dag.o
+main: dir $(BUILD)/main.o $(BUILD)/neural.o $(BUILD)/dag.o
 	$(CC) $(filter-out dir,$^) -o $@ $(LIB)
 
 # Compiling
 $(BUILD)/main.o: main.cc
 	$(CC) $(CFLAGS) $(INC) -c $< -o $@
 
-$(BUILD)/autodiff.o: $(CORE)/autodiff.* $(CORE)/dag.* $(CORE)/util_eigen.h
+$(BUILD)/neural.o: $(CORE)/neural.* $(CORE)/dag.* $(CORE)/util_eigen.h
 	$(CC) $(CFLAGS) $(INC) -c $< -o $@
 
 $(BUILD)/dag.o: $(CORE)/dag.* $(CORE)/util.h

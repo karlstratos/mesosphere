@@ -7,7 +7,7 @@
 #include <string>
 #include <vector>
 
-#include "../../core/autodiff.h"
+#include "../../core/neural.h"
 
 int main (int argc, char* argv[]) {
   size_t random_seed = std::time(0);
@@ -37,42 +37,42 @@ int main (int argc, char* argv[]) {
       display_options_and_quit = true;
     } else {
       std::cerr << "Invalid argument \"" << arg << "\": run the command with "
-           << "-h or --help to see possible arguments." << std::endl;
+                << "-h or --help to see possible arguments." << std::endl;
       exit(-1);
     }
   }
   if (display_options_and_quit) {
     std::cout << "--seed [" << random_seed << "]:        \t"
-         << "random seed" << std::endl;
+              << "random seed" << std::endl;
     std::cout << "--updater [" << updater << "]:   \t"
-         << "choice of updater" << std::endl;
+              << "choice of updater" << std::endl;
     std::cout << "--sqerr [" << use_sqerr << "]:        \t"
-         << "use squared error instead of cross entropy?" << std::endl;
+              << "use squared error instead of cross entropy?" << std::endl;
     std::cout << "--hdim [" << hdim << "]:        \t"
-         << "dimension of feedforward output vector" << std::endl;
+              << "dimension of feedforward output vector" << std::endl;
     std::cout << "--epochs [" << num_epochs << "]:\t"
-         << "number of epochs" << std::endl;
+              << "number of epochs" << std::endl;
     std::cout << "--step [" << step_size << "]:        \t"
-         << "step size for gradient descent" << std::endl;
+              << "step size for gradient descent" << std::endl;
     std::cout << "--help, -h:           \t"
-         << "show options and quit?" << std::endl;
+              << "show options and quit?" << std::endl;
     exit(0);
   }
 
   std::srand(random_seed);
 
   // Model parameters
-  autodiff::Model model;
+  neural::Model model;
   auto i_W1 = model.AddWeight(hdim, 2, "unit-variance");
   auto i_b1 = model.AddWeight(hdim, 1, "unit-variance");
   auto i_W2 = model.AddWeight(1, hdim, "unit-variance");
   auto i_b2 = model.AddWeight(1, 1, "unit-variance");
 
-  std::unique_ptr<autodiff::Updater> gd;
+  std::unique_ptr<neural::Updater> gd;
   if (updater == "sgd") {
-    gd = cc14::make_unique<autodiff::SimpleGradientDescent>(&model, step_size);
+    gd = cc14::make_unique<neural::SimpleGradientDescent>(&model, step_size);
   } else if (updater == "adam") {
-    gd = cc14::make_unique<autodiff::Adam>(&model, step_size);
+    gd = cc14::make_unique<neural::Adam>(&model, step_size);
   } else {
     ASSERT(false, "Unknown updater " << updater);
   }

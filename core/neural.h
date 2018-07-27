@@ -1,11 +1,11 @@
 // Author: Karl Stratos (me@karlstratos.com)
 //
-// Implementation of backpropagation. See the note at:
+// Code for backpropagation and neural network architectures. See the note at:
 //
 // http://karlstratos.com/notes/backprop.pdf
 
-#ifndef AUTODIFF_H_
-#define AUTODIFF_H_
+#ifndef NEURAL_H_
+#define NEURAL_H_
 
 #include <Eigen/Dense>
 #include <unordered_set>
@@ -13,14 +13,14 @@
 #include "dag.h"
 #include "util_eigen.h"
 
-namespace autodiff {
+namespace neural {
 
 // Abstract class for a variable in a computation graph.
 class Variable: public dag::Node {
  public:
   // Upon initialization, the following must be done immediately:
-  //   (i)  Specify parents.
-  //   (ii) Initialize the gradient to zero with a correct shape.
+  //   (1) Specify parents.
+  //   (2) Initialize gradient to zero with correct shape.
   Variable() : dag::Node() { }
 
   //------- binary operators ---------------------------------------------------
@@ -87,10 +87,34 @@ class Variable: public dag::Node {
       std::shared_ptr<Variable> X, const std::vector<bool> &flags);
 
   //------- class methods ------------------------------------------------------
-  // Calculates value from parents, pushes to order (one-time calculation).
-  virtual void Forward(std::vector<std::shared_ptr<Variable>>
-                       *topological_order) = 0;
-  Eigen::MatrixXd Forward();  // Want only values, won't compute gradients.
+  // References to value/gradient associated with the variable.
+  //
+  // Always use ref_value()/ref_gradient() from outside instead of accessing the
+  // protected members value_/gradient_. This is because some variables (like
+  // InputColumn) are not associated with value_/gradient_ but rather their
+  // blocks. They override these methods to return something else, for instance
+  // value_.col(i). Eigen::Ref is used to reference either matrices or blocks.
+  virtual Eigen::Ref<Eigen::MatrixXd> ref_value() { return value_; }
+  virtual Eigen::Ref<Eigen::MatrixXd> ref_gradient() { return gradient_; }
+
+  double get_value(size_t i, size_t j) { return ref_value()(i, j); }
+  double get_gradient(size_t i, size_t j) { return ref_gradient()(i, j); }
+  double get_value(size_t i);
+  double get_gradient(size_t i);
+
+  // Dimensions are inferred from gradient.
+  std::string Shape() { return util_eigen::dimension_string(ref_gradient()); }
+  size_t NumRows() { return ref_gradient().rows(); }
+  size_t NumColumns() { return ref_gradient().cols(); }
+
+  // Calculates value and pushes the variable to the topological order if given
+  // one and has not been appended yet. Returns the computed value.
+  Eigen::Ref<Eigen::MatrixXd> Forward(std::vector<std::shared_ptr<Variable>>
+                                      *topological_order);
+  Eigen::Ref<Eigen::MatrixXd> Forward() { return Forward(nullptr); }
+
+  // Calculates value from parents (assumed to have their values).
+  virtual void ComputeValue() = 0;
 
   // Propagates gradient (assumed complete) to parents by the chain rule.
   virtual void PropagateGradient() = 0;
@@ -106,10 +130,6 @@ class Variable: public dag::Node {
   // Calls Forward and then Backward, returns the final output value.
   double ForwardBackward();
 
-  std::string Shape() { return util_eigen::dimension_string(*gradient()); }
-  size_t NumRows() { return gradient()->rows(); }
-  size_t NumColumns() { return gradient()->cols(); }
-
   std::shared_ptr<Variable> Parent(size_t i) {
     return std::static_pointer_cast<Variable>(dag::Node::Parent(i));
   }
@@ -120,43 +140,50 @@ class Variable: public dag::Node {
     return std::static_pointer_cast<Variable>(dag::Node::shared_from_this());
   }
 
-  virtual Eigen::MatrixXd *value() { return &value_; }
-  virtual Eigen::MatrixXd *gradient() { return &gradient_; }
-
  protected:
   Eigen::MatrixXd value_;
   Eigen::MatrixXd gradient_;
+  bool appended_to_topological_order_ = false;
 };
 
-// TODO: Do I really need to maintain gradients outside?
-//
 // X: Input is a special variable. rather than maintaining its own value and
-// gradient, it only keeps the *addresses* of some external memory blocks whose
+// gradient, it only keeps the addresses of some external memory blocks whose
 // lifetime subsumes its own lifetime. These addresses must never be corrupted.
 class Input: public Variable {
  public:
-  void Forward(std::vector<std::shared_ptr<Variable>> *topological_order)
-      override;
-  void PropagateGradient() override { }
-  Eigen::MatrixXd *value() override { return value_address_; }
-  Eigen::MatrixXd *gradient() override { return gradient_address_; }
-  void set_value_address(Eigen::MatrixXd *value_address) {
-    value_address_ = value_address;
-  }
-  void set_gradient_address(Eigen::MatrixXd *gradient_address) {
-    gradient_address_ = gradient_address;
+  Input(Eigen::MatrixXd *value_address, Eigen::MatrixXd *gradient_address);
+  void ComputeValue() override { }  // No value to compute.
+  void PropagateGradient() override { }  // No parents to propagate to.
+
+  Eigen::Ref<Eigen::MatrixXd> ref_value() override { return *value_address_; }
+  Eigen::Ref<Eigen::MatrixXd> ref_gradient() override {
+    return *gradient_address_;
   }
  protected:
   Eigen::MatrixXd *value_address_;
   Eigen::MatrixXd *gradient_address_;
-  bool called_forward_ = false;
+};
+
+// X.col(i): InputColumn is Input at a certain column.
+class InputColumn: public Input {
+ public:
+  InputColumn(Eigen::MatrixXd *value_address, Eigen::MatrixXd *gradient_address,
+              size_t column_index);
+  Eigen::Ref<Eigen::MatrixXd> ref_value() override {
+    return value_address_->col(column_index_);  // Reference value column
+  }
+  Eigen::Ref<Eigen::MatrixXd> ref_gradient() override {
+    return gradient_address_->col(column_index_);  // Reference gradient column
+  }
+
+ protected:
+  size_t column_index_;
 };
 
 // X + Y: If X is a non-vector and Y is a vector, assume X + [Y ... Y].
 class Add: public Variable {
  public:
-  void Forward(std::vector<std::shared_ptr<Variable>> *topological_order)
-      override;
+  void ComputeValue() override;
   void PropagateGradient() override;
   void set_matrix_vector(bool matrix_vector) { matrix_vector_ = matrix_vector; }
   bool matrix_vector() { return matrix_vector_; }
@@ -167,9 +194,10 @@ class Add: public Variable {
 // X + c: element-wise
 class AddScalar: public Variable {
  public:
-  void Forward(std::vector<std::shared_ptr<Variable>> *topological_order)
-      override;
-  void PropagateGradient() override { *Parent(0)->gradient() += gradient_; }
+  void ComputeValue() override {
+    value_ = Parent(0)->ref_value().array() + scalar_value_;
+  }
+  void PropagateGradient() override { Parent(0)->ref_gradient() += gradient_; }
   void set_scalar_value(double scalar_value) { scalar_value_ = scalar_value; }
  protected:
   double scalar_value_;
@@ -178,8 +206,7 @@ class AddScalar: public Variable {
 // X - Y: If X is a non-vector and Y is a vector, assume X - [Y ... Y].
 class Subtract: public Variable {
  public:
-  void Forward(std::vector<std::shared_ptr<Variable>> *topological_order)
-      override;
+  void ComputeValue() override;
   void PropagateGradient() override;
   void set_matrix_vector(bool matrix_vector) { matrix_vector_ = matrix_vector; }
   bool matrix_vector() { return matrix_vector_; }
@@ -190,46 +217,53 @@ class Subtract: public Variable {
 // sum_i X_i
 class ReduceSum: public Variable {
  public:
-  void Forward(std::vector<std::shared_ptr<Variable>> *topological_order)
-      override;
+  void ComputeValue() override {
+    value_ = Eigen::MatrixXd::Constant(1, 1, Parent(0)->ref_value().sum());
+  }
   void PropagateGradient() override {
-    Parent(0)->gradient()->array() += gradient_(0);
+    Parent(0)->ref_gradient().array() += gradient_(0);
   }
 };
 
 // (1/n) sum_i X_i
 class ReduceAverage: public Variable {
  public:
-  void Forward(std::vector<std::shared_ptr<Variable>> *topological_order)
-      override;
+  void ComputeValue() override {
+    value_ = Eigen::MatrixXd::Constant(1, 1, Parent(0)->ref_value().mean());
+  }
   void PropagateGradient() override {
-    Parent(0)->gradient()->array() += gradient_(0) / Parent(0)->value()->size();
+    Parent(0)->ref_gradient().array() +=
+        gradient_(0) / Parent(0)->ref_value().size();
   }
 };
 
 // X * Y: linear algebraic matrix-matrix multiplication
 class  Multiply: public Variable {
  public:
-  void Forward(std::vector<std::shared_ptr<Variable>> *topological_order)
-      override;
+  void ComputeValue() override {
+    value_ = Parent(0)->ref_value() * Parent(1)->ref_value();
+  }
   void PropagateGradient() override;
 };
 
 // X .* Y: element-wise matrix-matrix multiplication
 class MultiplyElementwise: public Variable {
  public:
-  void Forward(std::vector<std::shared_ptr<Variable>> *topological_order)
-      override;
+  void ComputeValue() override {
+    value_.array() = Parent(0)->ref_value().array() *
+                     Parent(1)->ref_value().array();
+  }
   void PropagateGradient() override;
 };
 
 // X * c: element-wise matrix-scalar multiplication
 class MultiplyScalar: public Variable {
  public:
-  void Forward(std::vector<std::shared_ptr<Variable>> *topological_order)
-      override;
+  void ComputeValue() override {
+    value_ = scalar_value_ * Parent(0)->ref_value().array();
+  }
   void PropagateGradient() override {
-    Parent(0)->gradient()->array() += scalar_value_ * gradient_.array(); }
+    Parent(0)->ref_gradient().array() += scalar_value_ * gradient_.array(); }
   void set_scalar_value(double scalar_value) { scalar_value_ = scalar_value; }
  protected:
   double scalar_value_;
@@ -238,95 +272,98 @@ class MultiplyScalar: public Variable {
 // [X; Y]
 class ConcatenateVertical: public Variable {
  public:
-  void Forward(std::vector<std::shared_ptr<Variable>> *topological_order)
-      override;
+  void ComputeValue() override;
   void PropagateGradient() override;
 };
 
 // [X, Y]
 class ConcatenateHorizontal: public Variable {
  public:
-  void Forward(std::vector<std::shared_ptr<Variable>> *topological_order)
-      override;
+  void ComputeValue() override;
   void PropagateGradient() override;
 };
 
 // x^T y: column-wise
 class Dot: public Variable {
  public:
-  void Forward(std::vector<std::shared_ptr<Variable>> *topological_order)
-      override;
+  void ComputeValue() override {
+    // [a1 a2]'[b1 b2] = [a1'b1 a1'b2;
+    //                    a2'b1 a2'b2]
+    value_ = (Parent(0)->ref_value().transpose() *  // Eigen should optimize.
+              Parent(1)->ref_value()).diagonal().transpose();
+  }
   void PropagateGradient() override;
 };
 
 // -X
 class FlipSign: public Variable {
  public:
-  void Forward(std::vector<std::shared_ptr<Variable>> *topological_order)
-      override;
-  void PropagateGradient() override { *Parent(0)->gradient() -= gradient_; }
+  void ComputeValue() override { value_ = -Parent(0)->ref_value(); }
+  void PropagateGradient() override { Parent(0)->ref_gradient() -= gradient_; }
 };
 
 // X^T
 class Transpose: public Variable {
  public:
-  void Forward(std::vector<std::shared_ptr<Variable>> *topological_order)
-      override;
+  void ComputeValue() override { value_ = Parent(0)->ref_value().transpose(); }
   void PropagateGradient() override {
-    *Parent(0)->gradient() += gradient_.transpose();
+    Parent(0)->ref_gradient() += gradient_.transpose();
   }
 };
 
 // 1 / (1 + exp(-x)): element-wise
 class Logistic: public Variable {
  public:
-  void Forward(std::vector<std::shared_ptr<Variable>> *topological_order)
-      override;
+  void ComputeValue() override {
+    value_ = Parent(0)->ref_value().unaryExpr(
+        [](double x) { return 1 / (1 + exp(-x));});
+  }
   void PropagateGradient() override {
-    *Parent(0)->gradient() += gradient_.cwiseProduct(
-        value()->unaryExpr([](double x) { return x * (1 - x); }));
+    Parent(0)->ref_gradient() += gradient_.cwiseProduct(
+        value_.unaryExpr([](double x) { return x * (1 - x); }));
   }
 };
 
 // tanh(x): element-wise
 class Tanh: public Variable {
  public:
-  void Forward(std::vector<std::shared_ptr<Variable>> *topological_order)
-      override;
+  void ComputeValue() override {
+    value_ = Parent(0)->ref_value().array().tanh();
+  }
   void PropagateGradient() override {
-    *Parent(0)->gradient() += gradient_.cwiseProduct(
-        value()->unaryExpr([](double x) { return 1 - pow(x, 2); }));
+    Parent(0)->ref_gradient() += gradient_.cwiseProduct(
+        value_.unaryExpr([](double x) { return 1 - pow(x, 2); }));
   }
 };
 
 // relu(x): element-wise
 class ReLU: public Variable {
  public:
-  void Forward(std::vector<std::shared_ptr<Variable>> *topological_order)
-      override;
+  void ComputeValue() override {
+    value_ = Parent(0)->ref_value().unaryExpr(
+        [](double x) { return std::max(0.0, x); });
+  }
   void PropagateGradient() override {
-    *Parent(0)->gradient() += gradient_.cwiseProduct(
-        value()->unaryExpr([](double x) {
-            return static_cast<double>(x > 0);
-          }));
+    Parent(0)->ref_gradient() += gradient_.cwiseProduct(
+        value_.unaryExpr([](double x) { return static_cast<double>(x > 0); }));
   }
 };
 
 // softmax(x): column-wise
 class Softmax: public Variable {
  public:
-  void Forward(std::vector<std::shared_ptr<Variable>> *topological_order)
-      override;
+  void ComputeValue() override {
+    value_ = util_eigen::softmax(Parent(0)->ref_value());
+  }
   void PropagateGradient() override;
 };
 
 // x_l: column-wise
 class Pick: public Variable {
  public:
-  void Forward(std::vector<std::shared_ptr<Variable>> *topological_order)
-      override;
+  Pick(const std::vector<size_t> &indices) : Variable(), indices_(indices) { }
+  void ComputeValue() override;
   void PropagateGradient() override;
-  void set_indices(const std::vector<size_t> &indices) { indices_ = indices; }
  protected:
   std::vector<size_t> indices_;
 };
@@ -334,10 +371,10 @@ class Pick: public Variable {
 // - log [softmax(x)]_l: column-wise
 class PickNegativeLogSoftmax: public Variable {
  public:
-  void Forward(std::vector<std::shared_ptr<Variable>> *topological_order)
-      override;
+  PickNegativeLogSoftmax(const std::vector<size_t> &indices) :
+      Variable(), indices_(indices) { }
+  void ComputeValue() override;
   void PropagateGradient() override;
-  void set_indices(const std::vector<size_t> &indices) { indices_ = indices; }
  protected:
   std::vector<size_t> indices_;
   Eigen::MatrixXd softmax_cache_;
@@ -347,10 +384,10 @@ class PickNegativeLogSoftmax: public Variable {
 // - log (1 - logistic(x)) if false: column-wise
 class FlagNegativeLogistic: public Variable {
  public:
-  void Forward(std::vector<std::shared_ptr<Variable>> *topological_order)
-      override;
+  FlagNegativeLogistic(const std::vector<bool> &flags) :
+      Variable(), flags_(flags) { }
+  void ComputeValue() override;
   void PropagateGradient() override;
-  void set_flags(const std::vector<bool> &flags) { flags_ = flags; }
  protected:
   std::vector<bool> flags_;
   Eigen::MatrixXd logistic_cache_;
@@ -363,9 +400,8 @@ class FlagNegativeLogistic: public Variable {
 // initializing gradients; it also maintains active shared pointers to prevent
 // them from going out of scope.
 //
-// Note that this is for a single computation graph: if you want to work with
-// multiple computation graphs sharing a model, you need to handle these details
-// explicitly yourself.
+// Note: weights must be all added before making inputs to avoid corrupting
+// addresses.
 class Model {
  public:
   // Adds a weight and its gradient to holders, returns its index.
@@ -391,6 +427,12 @@ class Model {
   // and includes the weight to the update set unless frozen.
   std::shared_ptr<Input> MakeInput(size_t weight_index);
 
+  // Creates an InputColumn pointer for a certain column of the weight, resets
+  // the corresponding column of the gradient to zero, and includes the weight
+  // column  to the update column set unless frozen.
+  std::shared_ptr<InputColumn> MakeInputColumn(size_t weight_index,
+                                               size_t column_index);
+
   // Creates an Input pointer for a temporary weight, resets its temporary
   // gradient to zero. Do not mix indices between model/temporary weights!
   std::shared_ptr<Input> MakeTemporaryInput(size_t temporary_index);
@@ -402,6 +444,8 @@ class Model {
   size_t NumWeights() { return weights_.size(); }
   size_t NumTemporaryWeights() { return temporary_weights_.size(); }
 
+  // We allow external access to weights/gradients because it's sometimes
+  // convenient to  dynamically set their values per data instance.
   Eigen::MatrixXd *weight(size_t weight_index) {
     return &weights_[weight_index];
   }
@@ -410,12 +454,16 @@ class Model {
   }
   bool frozen(size_t weight_index) { return frozen_[weight_index]; }
   std::unordered_set<size_t> *update_set() { return &update_set_; }
+  std::unordered_map<size_t, std::unordered_set<size_t>> *update_column_set() {
+    return &update_column_set_;
+  }
 
  private:
   std::vector<Eigen::MatrixXd> weights_;
   std::vector<Eigen::MatrixXd> gradients_;
   std::vector<bool> frozen_;
   std::unordered_set<size_t> update_set_;
+  std::unordered_map<size_t, std::unordered_set<size_t>> update_column_set_;
   bool made_input_ = false;
 
   // Holder for temporary input variables that are not part of the model.
@@ -440,12 +488,19 @@ class Updater {
   void UpdateWeights();
 
   virtual void UpdateWeight(size_t weight_index) = 0;
+  virtual void UpdateWeightColumn(size_t weight_index, size_t column_index) = 0;
   double step_size() { return step_size_; }
   void set_step_size(double step_size) { step_size_ = step_size; }
+
+  size_t num_updates(size_t weight_index) { return num_updates_[weight_index]; }
+  size_t num_column_updates(size_t weight_index, size_t column_index) {
+    return num_column_updates_[weight_index](column_index);
+  }
 
  protected:
   Model *model_;
   std::vector<size_t> num_updates_;
+  std::unordered_map<size_t, Eigen::VectorXi> num_column_updates_;
   double step_size_;
 };
 
@@ -458,6 +513,10 @@ class SimpleGradientDescent: public Updater {
     *model_->weight(weight_index) -= step_size_ *
                                      (*model_->gradient(weight_index));
   }
+  void UpdateWeightColumn(size_t weight_index, size_t column_index) override {
+    model_->weight(weight_index)->col(column_index) -=
+        step_size_ * model_->gradient(weight_index)->col(column_index);
+  }
 };
 
 // ADAM: https://arxiv.org/pdf/1412.6980.pdf.
@@ -466,6 +525,7 @@ class Adam: public Updater {
   Adam(Model *model, double step_size);
   Adam(Model *model, double step_size, double b1, double b2, double ep);
   void UpdateWeight(size_t weight_index) override;
+  void UpdateWeightColumn(size_t weight_index, size_t column_index) override;
 
  protected:
   void InitializeMoments();
@@ -596,6 +656,6 @@ class LSTM: public RNN {
   std::vector<size_t> output_b_indices_;
 };
 
-}  // namespace autodiff
+}  // namespace neural
 
-#endif  // AUTODIFF_H_
+#endif  // NEURAL_H_

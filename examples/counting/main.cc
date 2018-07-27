@@ -7,7 +7,7 @@
 #include <string>
 #include <vector>
 
-#include "../../core/autodiff.h"
+#include "../../core/neural.h"
 
 int main (int argc, char* argv[]) {
   size_t random_seed = 42;
@@ -78,23 +78,23 @@ int main (int argc, char* argv[]) {
 
   std::srand(random_seed);
 
-  autodiff::Model model;
+  neural::Model model;
   size_t i_a = model.AddWeight(xdim, 1, "unit-variance");
   size_t i_b = model.AddWeight(xdim, 1, "unit-variance");
 
-  std::unique_ptr<autodiff::RNN> rnn;
+  std::unique_ptr<neural::RNN> rnn;
   if (rnn_type == "simple") {
-    rnn = cc14::make_unique<autodiff::SimpleRNN>(num_layers, xdim, hdim,
-                                                 &model);
+    rnn = cc14::make_unique<neural::SimpleRNN>(num_layers, xdim, hdim,
+                                               &model);
   } else if (rnn_type == "lstm") {
-    rnn = cc14::make_unique<autodiff::LSTM>(num_layers, xdim, hdim,
-                                            &model);
+    rnn = cc14::make_unique<neural::LSTM>(num_layers, xdim, hdim,
+                                          &model);
   } else {
     ASSERT(false, "Unknown RNN " << rnn_type);
   }
   size_t i_W = model.AddWeight(1, hdim, "unit-variance");
 
-  autodiff::Adam gd(&model, step_size);
+  neural::Adam gd(&model, step_size);
 
   std::mt19937 gen(random_seed);
   std::uniform_int_distribution<> dis_length_training(1, max_train_length);
@@ -119,7 +119,7 @@ int main (int argc, char* argv[]) {
     if (dis_negative(gen)) {
       while (next_length == length) { next_length = dis_length_training(gen); }
     }
-    std::vector<std::shared_ptr<autodiff::Variable>> Xs;
+    std::vector<std::shared_ptr<neural::Variable>> Xs;
     for (size_t i = 0; i < length; ++i) { Xs.push_back(model.MakeInput(i_a)); }
     for (size_t i = 0; i < next_length; ++i) {
       Xs.push_back(model.MakeInput(i_b));
@@ -133,7 +133,7 @@ int main (int argc, char* argv[]) {
     loss = new_loss;
 
     if (verbose) {
-      double prob = 1.0 / (1 + exp(-(*h->value())(0)));
+      double prob = 1.0 / (1 + exp(-h->get_value(0)));
       bool correct = ((length == next_length && prob >= 0.5) ||
                       (length != next_length && prob < 0.5));
       std::string sample_string = "a^" + std::to_string(length) + " "
@@ -151,7 +151,7 @@ int main (int argc, char* argv[]) {
       for (auto p : dev) {
         int length = p.first;
         int next_length = p.second;
-        std::vector<std::shared_ptr<autodiff::Variable>> Xs;
+        std::vector<std::shared_ptr<neural::Variable>> Xs;
         for (size_t i = 0; i < length; ++i) {
           Xs.push_back(model.MakeInput(i_a)); }
         for (size_t i = 0; i < next_length; ++i) {
@@ -160,7 +160,7 @@ int main (int argc, char* argv[]) {
         auto W = model.MakeInput(i_W);
         auto h = W * rnn->Transduce(Xs).back().back()[0];
         auto l = binary_cross_entropy(h, {length == next_length});
-        double prob = 1.0 / (1 + exp(-h->Forward()(0)));
+        double prob = 1.0 / (1 + exp(-h->Forward()(0, 0)));
         bool correct = ((length == next_length && prob >= 0.5) ||
                         (length != next_length && prob < 0.5));
         if (correct) { ++num_correct; }
@@ -183,7 +183,7 @@ int main (int argc, char* argv[]) {
     int length = std::max(n + dis_perturb(gen), 1);
     int next_length = std::max(n + dis_perturb(gen), 1);
 
-    std::vector<std::shared_ptr<autodiff::Variable>> Xs;
+    std::vector<std::shared_ptr<neural::Variable>> Xs;
     for (size_t i = 0; i < length; ++i) {
       Xs.push_back(model.MakeInput(i_a)); }
     for (size_t i = 0; i < next_length; ++i) {
@@ -194,7 +194,7 @@ int main (int argc, char* argv[]) {
     auto HHs = rnn->Transduce(Xs);
     auto h = W * HHs.back().back()[0];
     auto l = binary_cross_entropy(h, {length == next_length});
-    double prob = 1.0 / (1 + exp(-h->Forward()(0)));
+    double prob = 1.0 / (1 + exp(-h->Forward()(0, 0)));
     bool correct = ((length == next_length && prob >= 0.5) ||
                     (length != next_length && prob < 0.5));
     if (correct) { ++num_correct; }
@@ -207,7 +207,7 @@ int main (int argc, char* argv[]) {
       for (size_t t = 0; t < HHs.size(); ++t) {
         const auto &HH = (rnn_type == "lstm") ?
                          HHs[t].back()[1] : HHs[t].back()[0];
-        Eigen::MatrixXd state_t_value = *HH->value();
+        Eigen::MatrixXd state_t_value = HH->ref_value();
         for (size_t i = 0; i < state_t_value.rows(); ++i) {
           example_states(i, t) = state_t_value(i);
         }
