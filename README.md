@@ -1,2 +1,18 @@
-# mesosphere
-Research code base: beyond stratosphere
+# stratosphere
+Research codebase
+
+```
+      ______
+    /        \
+   / \/    \/ \
+  |  /\    /\  |
+   \           |
+    \ \___/   /
+     \      /
+       \  /
+        \|
+	 |
+	 |
+	 |
+
+'''
