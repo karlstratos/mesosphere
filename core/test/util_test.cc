@@ -354,8 +354,7 @@ TEST(InvertUnorderedMap, Test) {
   std::unordered_map<std::string, size_t> table1;
   table1["a"] = 0;
   table1["b"] = 1;
-  std::unordered_map<size_t, std::string> table2;
-  util_misc::invert(table1, &table2);
+  auto table2 = util_misc::invert(table1);
   EXPECT_EQ(2, table2.size());
   EXPECT_EQ("a", table2[0]);
   EXPECT_EQ("b", table2[1]);

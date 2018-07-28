@@ -67,6 +67,8 @@ class Variable: public dag::Node {
   //------- unary operators ----------------------------------------------------
   friend std::shared_ptr<Variable> operator-(std::shared_ptr<Variable> X);
   friend std::shared_ptr<Variable> sum(std::shared_ptr<Variable> X);
+  friend std::shared_ptr<Variable> sum(std::vector<std::shared_ptr<Variable>>
+                                       Xs);
   friend std::shared_ptr<Variable> average(std::shared_ptr<Variable> X);
   friend std::shared_ptr<Variable> transpose(std::shared_ptr<Variable> X);
   // squared_norm(X): column-wise squared norm

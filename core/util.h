@@ -531,6 +531,17 @@ double compute_spearman(const std::vector<T> &values1,
 
 namespace util_misc {
 
+inline size_t sample(std::vector<double> probabilities, std::mt19937 *gen) {
+  std::uniform_real_distribution<> dis(0.0, 1.0);
+  double uniformly_random_probability = dis(*gen);
+  for (size_t i = 0; i < probabilities.size(); ++i) {
+    uniformly_random_probability -= probabilities[i];
+    if (uniformly_random_probability <= 0) { return i; }
+  }
+  ASSERT(false, "Sampling error: given probabilities sum to " <<
+         std::accumulate(probabilities.begin(), probabilities.end(), 0.0));
+}
+
 // Computes a random permutation of {1...n}, runtime/memory O(n). Needs a random
 // seed, for instance:
 //   size_t seed = std::chrono::system_clock::now().time_since_epoch().count();
@@ -559,10 +570,10 @@ struct sort_pairs_second {
 
 // Inverts an unordered_map.
 template <typename T1, typename T2>
-void invert(const std::unordered_map<T1, T2> &table1,
-            std::unordered_map<T2, T1> *table2) {
-  table2->clear();
-  for (const auto &pair : table1) { (*table2)[pair.second] = pair.first; }
+std::unordered_map<T2, T1> invert(const std::unordered_map<T1, T2> &table1) {
+  std::unordered_map<T2, T1> table2;
+  for (const auto &pair : table1) { table2[pair.second] = pair.first; }
+  return table2;
 }
 
 // Subtracts the median value from all values, guaranteeing the elimination

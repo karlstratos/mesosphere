@@ -128,6 +128,12 @@ std::shared_ptr<Variable> sum(std::shared_ptr<Variable> X) {
   return Z;
 }
 
+std::shared_ptr<Variable> sum(std::vector<std::shared_ptr<Variable>> Xs) {
+  auto Z = Xs[0];
+  for (size_t i = 1; i < Xs.size(); ++i) { Z = Z + Xs[i]; }
+  return Z;
+}
+
 std::shared_ptr<Variable> average(std::shared_ptr<Variable> X) {
   auto Z = std::make_shared<ReduceAverage>();
   Z->AddParent(X);
