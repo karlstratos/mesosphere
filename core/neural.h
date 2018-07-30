@@ -486,7 +486,7 @@ class Model {
   size_t NumTemporaryWeights() { return temporary_weights_.size(); }
 
   // We allow external access to weights/gradients because it's sometimes
-  // convenient to  dynamically set their values per data instance.
+  // convenient to dynamically set their values per data instance.
   Eigen::MatrixXd *weight(size_t weight_index) {
     return &weights_[weight_index];
   }
@@ -598,6 +598,11 @@ class RNN {
       const std::vector<std::vector<std::shared_ptr<Variable>>>
       &initial_state_stack);
 
+  // Batch unbatched observation sequences with zero padding.
+  std::vector<std::shared_ptr<Variable>> Batch(
+      const std::vector<std::vector<std::shared_ptr<Variable>>>
+      &unbatched_observation_sequences);
+
   // Computes a new state stack. The output at indices [l][s] is the state in
   // layer l of type s.
   std::vector<std::vector<std::shared_ptr<Variable>>> ComputeNewStateStack(
@@ -632,6 +637,7 @@ class RNN {
   double dropout_rate_ = 0.0;
 
   // We dynamically set some constant weights per sequence.
+  size_t empty_observation_index_;
   size_t initial_state_index_;
   std::vector<size_t> observation_mask_indices_;
   std::vector<size_t> state_mask_indices_;

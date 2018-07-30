@@ -578,6 +578,8 @@ RNN::RNN(size_t num_layers, size_t dim_observation, size_t dim_state,
     num_layers_(num_layers), dim_observation_(dim_observation),
     dim_state_(dim_state), num_state_types_(num_state_types),
     model_address_(model_address) {
+  empty_observation_index_ = model_address_->AddWeight(dim_observation, 1,
+                                                       "zero", true);
   // These constant weights are added as empty values now but will be set
   // dynamically per sequence. Note you must also shape their gradients then!
   initial_state_index_ = model_address_->AddWeight(0, 0, "zero", true);
@@ -604,6 +606,33 @@ std::vector<std::vector<std::vector<std::shared_ptr<Variable>>>> RNN::Transduce(
                              state_stack_sequence.back()));
   }
   return state_stack_sequence;
+}
+
+std::vector<std::shared_ptr<Variable>> RNN::Batch(
+    const std::vector<std::vector<std::shared_ptr<Variable>>>
+    &unbatched_observation_sequences) {
+  size_t max_length = 0;
+  for (const auto &sequence : unbatched_observation_sequences) {
+    max_length = std::max(max_length, sequence.size());
+  }
+  auto empty_observation = model_address_->MakeInput(empty_observation_index_);
+  auto pad = [&](size_t position, size_t batch_element) {
+    const auto &sequence = unbatched_observation_sequences[batch_element];
+    return (position < sequence.size()) ? sequence[position] :
+    empty_observation;
+  };
+
+  std::vector<std::shared_ptr<Variable>> batched_observation_sequence;
+  for (size_t position = 0; position < max_length; ++position) {
+    auto batched_observation = pad(position, 0);
+    for (size_t batch_element = 1;
+         batch_element < unbatched_observation_sequences.size();
+         ++batch_element) {
+      batched_observation = batched_observation ^ pad(position, batch_element);
+    }
+    batched_observation_sequence.push_back(batched_observation);
+  }
+  return batched_observation_sequence;
 }
 
 std::vector<std::vector<std::shared_ptr<Variable>>> RNN::ComputeNewStateStack(

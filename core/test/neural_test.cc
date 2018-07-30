@@ -485,6 +485,38 @@ TEST(LSTM, DropoutDoesNotCrash) {
   sum(HHs.back().back()[0])->ForwardBackward();
 }
 
+TEST(LSTM, BatchPadding) {
+  neural::Model model;
+  size_t i_x1 = model.AddWeight({{1}, {1}});
+  size_t i_x2 = model.AddWeight({{2}, {2}});
+  size_t i_x3 = model.AddWeight({{3}, {3}});
+  neural::LSTM lstm(3, 2, 20, &model);
+
+  auto x1 = model.MakeInput(i_x1);
+  auto x2 = model.MakeInput(i_x2);
+  auto x3 = model.MakeInput(i_x3);
+
+  // 1 3 2     2 1 0     3 2 0     0 3 0     0 1 0
+  // 1 3 2     2 1 0     3 2 0     0 3 0     0 1 0
+  auto Xs = lstm.Batch({{x1, x2, x3}, {x3, x1, x2, x3, x1}, {x2}});
+  auto HHs = lstm.Transduce(Xs);
+  sum(HHs.back().back()[0])->ForwardBackward();
+
+  EXPECT_EQ(1, Xs[0]->get_value(0, 0));
+  EXPECT_EQ(1, Xs[0]->get_value(1, 0));
+  EXPECT_EQ(3, Xs[0]->get_value(0, 1));
+  EXPECT_EQ(3, Xs[0]->get_value(1, 1));
+  EXPECT_EQ(2, Xs[0]->get_value(0, 2));
+  EXPECT_EQ(2, Xs[0]->get_value(1, 2));
+
+  EXPECT_EQ(0, Xs[4]->get_value(0, 0));
+  EXPECT_EQ(0, Xs[4]->get_value(1, 0));
+  EXPECT_EQ(1, Xs[4]->get_value(0, 1));
+  EXPECT_EQ(1, Xs[4]->get_value(1, 1));
+  EXPECT_EQ(0, Xs[4]->get_value(0, 2));
+  EXPECT_EQ(0, Xs[4]->get_value(1, 2));
+}
+
 TEST(OverwriteSharedPointers, Test) {
   neural::Model model;
   size_t i_x = model.AddWeight({{1}});
