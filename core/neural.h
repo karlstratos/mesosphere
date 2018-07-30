@@ -63,22 +63,38 @@ class Variable: public dag::Node {
   // dot(X, Y): column-wise dot product
   friend std::shared_ptr<Variable> dot(std::shared_ptr<Variable> X,
                                        std::shared_ptr<Variable> Y);
+  friend std::shared_ptr<Variable> cross_entropy(std::shared_ptr<Variable> X,
+                                                 std::shared_ptr<Variable> Y,
+                                                 bool base2=false) {
+    return (base2) ? -sum_cwise(X % log2(Y)) : -sum_cwise(X % log(Y));
+  }
 
   //------- unary operators ----------------------------------------------------
   friend std::shared_ptr<Variable> operator-(std::shared_ptr<Variable> X);
   friend std::shared_ptr<Variable> sum(std::shared_ptr<Variable> X);
+  friend std::shared_ptr<Variable> sum_cwise(std::shared_ptr<Variable> X);
   friend std::shared_ptr<Variable> sum(std::vector<std::shared_ptr<Variable>>
                                        Xs);
   friend std::shared_ptr<Variable> average(std::shared_ptr<Variable> X);
+  friend std::shared_ptr<Variable> average(
+      std::vector<std::shared_ptr<Variable>> Xs) { return sum(Xs) / Xs.size(); }
   friend std::shared_ptr<Variable> transpose(std::shared_ptr<Variable> X);
   // squared_norm(X): column-wise squared norm
   friend std::shared_ptr<Variable> squared_norm(std::shared_ptr<Variable> X) {
     return dot(X, X);
   }
   friend std::shared_ptr<Variable> logistic(std::shared_ptr<Variable> X);
+  friend std::shared_ptr<Variable> log(std::shared_ptr<Variable> X);
+  friend std::shared_ptr<Variable> log2(std::shared_ptr<Variable> X) {
+    return log(X) / std::log(2.0);
+  }
   friend std::shared_ptr<Variable> tanh(std::shared_ptr<Variable> X);
   friend std::shared_ptr<Variable> relu(std::shared_ptr<Variable> X);
   friend std::shared_ptr<Variable> softmax(std::shared_ptr<Variable> X);
+  friend std::shared_ptr<Variable> entropy(std::shared_ptr<Variable> X,
+                                           bool base2=false) {
+    return cross_entropy(X, X, base2);
+  }
 
   //------- pick operators -----------------------------------------------------
   friend std::shared_ptr<Variable> pick(std::shared_ptr<Variable> X,
@@ -227,6 +243,17 @@ class ReduceSum: public Variable {
   }
 };
 
+// sum_i X_i: column-wise
+class ReduceSumColumnWise: public Variable {
+ public:
+  void ComputeValue() override {
+    value_ = Parent(0)->ref_value().colwise().sum();
+  }
+  void PropagateGradient() override {
+    Parent(0)->ref_gradient().array() += gradient_(0);
+  }
+};
+
 // (1/n) sum_i X_i
 class ReduceAverage: public Variable {
  public:
@@ -323,6 +350,18 @@ class Logistic: public Variable {
   void PropagateGradient() override {
     Parent(0)->ref_gradient() += gradient_.cwiseProduct(
         value_.unaryExpr([](double x) { return x * (1 - x); }));
+  }
+};
+
+// log(x): element-wise natural logarithm
+class Log: public Variable {
+ public:
+  void ComputeValue() override {
+    value_ = Parent(0)->ref_value().array().log();
+  }
+  void PropagateGradient() override {
+    Parent(0)->ref_gradient() += gradient_.cwiseProduct(
+        value_.unaryExpr([](double x) { return 1.0 / x; }));
   }
 };
 

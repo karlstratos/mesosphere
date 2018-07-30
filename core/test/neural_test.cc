@@ -146,6 +146,20 @@ TEST(Dot, Test) {
   EXPECT_EQ(4, Y->get_gradient(1, 1));
 }
 
+TEST(Entropy , Test) {
+  neural::Model model;
+  // ~(1 0 0 0) => entropy 0
+  // (1/4 1/4 1/4 1/4) => entropy 2 (log base 2)
+  size_t i_X = model.AddWeight({{0.9999999, 0.25}, {0.0000001 / 3.0, 0.25},
+                                                   {0.0000001 / 3.0, 0.25},
+                                                   {0.0000001 / 3.0, 0.25}});
+  auto X = model.MakeInput(i_X);
+  auto Z = entropy(X, true);
+  sum(Z)->ForwardBackward();
+  EXPECT_NEAR(0.0, Z->get_value(0), 1e-4);
+  EXPECT_NEAR(2.0, Z->get_value(1), 1e-4);
+}
+
 TEST(AddMultiplyDotFlipSign, Test) {
   neural::Model model;
   size_t i_x = model.AddWeight({{1}, {2}});

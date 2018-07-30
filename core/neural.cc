@@ -128,6 +128,13 @@ std::shared_ptr<Variable> sum(std::shared_ptr<Variable> X) {
   return Z;
 }
 
+std::shared_ptr<Variable> sum_cwise(std::shared_ptr<Variable> X) {
+  auto Z = std::make_shared<ReduceSumColumnWise>();
+  Z->AddParent(X);
+  Z->gradient_ = Eigen::MatrixXd::Zero(1, X->NumColumns());
+  return Z;
+}
+
 std::shared_ptr<Variable> sum(std::vector<std::shared_ptr<Variable>> Xs) {
   auto Z = Xs[0];
   for (size_t i = 1; i < Xs.size(); ++i) { Z = Z + Xs[i]; }
@@ -150,6 +157,13 @@ std::shared_ptr<Variable> transpose(std::shared_ptr<Variable> X) {
 
 std::shared_ptr<Variable> logistic(std::shared_ptr<Variable> X) {
   auto Z = std::make_shared<Logistic>();
+  Z->AddParent(X);
+  Z->gradient_ = Eigen::MatrixXd::Zero(X->NumRows(), X->NumColumns());
+  return Z;
+}
+
+std::shared_ptr<Variable> log(std::shared_ptr<Variable> X) {
+  auto Z = std::make_shared<Log>();
   Z->AddParent(X);
   Z->gradient_ = Eigen::MatrixXd::Zero(X->NumRows(), X->NumColumns());
   return Z;
@@ -373,7 +387,7 @@ void PickNegativeLogSoftmax::ComputeValue() {
   softmax_cache_ = util_eigen::softmax(Parent(0)->ref_value());
   value_.resize(1, indices_.size());
   for (size_t i = 0; i < indices_.size(); ++i) {
-    value_(i) = -log(softmax_cache_(indices_[i], i));
+    value_(i) = -std::log(softmax_cache_(indices_[i], i));
   }
 }
 
@@ -389,8 +403,8 @@ void FlagNegativeLogistic::ComputeValue() {
       [](double x) { return 1 / (1 + exp(-x)); });
   value_.resize(1, flags_.size());
   for (size_t i = 0; i < flags_.size(); ++i) {
-    value_(i) = (flags_[i]) ? -log(logistic_cache_(i)) :
-                -log(1 - logistic_cache_(i));
+    value_(i) = (flags_[i]) ? -std::log(logistic_cache_(i)) :
+                -std::log(1 - logistic_cache_(i));
   }
 }
 

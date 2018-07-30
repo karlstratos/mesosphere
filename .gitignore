@@ -1,3 +1,6 @@
+# Non-public data
+data/*
+
 # Prerequisites
 *.d
 
