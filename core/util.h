@@ -198,13 +198,21 @@ inline std::string get_file_name(std::string file_path) {
 
 // Reads the next line from a file into tokens separated by space or tab.
 // while (file.good()) {
-//     std::vector<std::string> tokens = util::read_line(&file);
+//     std::vector<std::string> tokens = util_file::read_line(&file);
 //     /* (Do stuff with tokens.) */
 // }
 inline std::vector<std::string> read_line(std::ifstream *file) {
   std::string line;
   getline(*file, line);
   return util_string::split_by_chars(line, " \t\n");
+}
+
+// Reads lines from a (text) file path.
+inline std::vector<std::vector<std::string>> read_lines(std::string file_path) {
+  std::vector<std::vector<std::string>> lines;
+  std::ifstream file(file_path, std::ios::in);
+  while (file.good()) { lines.emplace_back(read_line(&file)); }
+  return lines;
 }
 
 // Returns true if the file exists, false otherwise.
@@ -568,6 +576,55 @@ struct sort_pairs_second {
   }
 };
 
+// Builds a type-to-index dictionary from element sequences.
+template <typename T>
+std::unordered_map<T, size_t> build_dictionary(
+    const std::vector<std::vector<T>> &sequences,
+    const std::vector<T> &additional_elements={}) {
+  std::unordered_map<T, size_t> dictionary;
+  for (const auto &sequence : sequences) {
+    for (const auto &element : sequence) {
+      if (dictionary.find(element) == dictionary.end()) {
+        dictionary[element] = dictionary.size();
+      }
+    }
+  }
+  for (const auto &element : additional_elements) {
+    if (dictionary.find(element) == dictionary.end()) {
+      dictionary[element] = dictionary.size();
+    }
+  }
+  return dictionary;
+}
+
+// Builds a character-to-index dictionary from word sequences.
+inline std::unordered_map<char, size_t> build_character_dictionary(
+    const std::vector<std::vector<std::string>> &word_sequences) {
+  std::unordered_map<char, size_t> character_dictionary;
+  for (const auto &word_sequence : word_sequences) {
+    for (const auto &word : word_sequence) {
+      for (auto c : word) {
+        if (character_dictionary.find(c) == character_dictionary.end()) {
+          character_dictionary[c] = character_dictionary.size();
+        }
+      }
+    }
+  }
+  return character_dictionary;
+}
+
+// Segments a list by given length (last section may have a shorter length).
+template <typename T>
+std::vector<std::vector<T>> segment(std::vector<T> list, size_t length) {
+  std::vector<std::vector<T>> sections;
+  for (size_t i = 0; i < list.size(); i += length) {
+    std::vector<T> section(list.begin() + i,
+                           list.begin() + std::min(i + length, list.size()));
+    sections.push_back(section);
+  }
+  return sections;
+}
+
 // Inverts an unordered_map.
 template <typename T1, typename T2>
 std::unordered_map<T2, T1> invert(const std::unordered_map<T1, T2> &table1) {
@@ -655,6 +712,16 @@ T3 check_near(const std::unordered_map<T1, std::unordered_map<T2, T3>> &table1,
     }
   }
   return true;
+}
+
+// Checks if we want command line options.
+inline bool want_options(int argc, char* argv[]) {
+  if (argc == 1) { return true; }
+  for (int i = 1; i < argc; ++i) {
+    std::string arg = argv[i];
+    if (arg == "--help" || arg == "-h"){ return true; }
+  }
+  return false;
 }
 
 }  // namespace util_misc
