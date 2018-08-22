@@ -1,6 +1,8 @@
 // Author: Karl Stratos (me@karlstratos.com)
 //
-// Directed acyclic graph (DAG).
+// Directed acyclic graph (DAG). See the note on smart pointers at:
+//
+// http://karlstratos.com/notes/smart_pointers.pdf
 
 #ifndef DAG_H_
 #define DAG_H_
@@ -18,9 +20,12 @@ class Node: public std::enable_shared_from_this<Node> {
   Node() { }
   Node(std::string name) : name_(name) { }
 
-  void AddParent(std::shared_ptr<Node> parent);
-  void AddChild(std::shared_ptr<Node> child);
+  // Adds the node owned by a shared pointer (passed by constant reference) as
+  // a parent/child node.
+  void AddParent(const std::shared_ptr<Node> &parent);
+  void AddChild(const std::shared_ptr<Node> &child);
 
+  // Creates and returns a shared pointer to the i-th parent/child node.
   std::shared_ptr<Node> Parent(size_t i);
   std::shared_ptr<Node> Child(size_t i);
 
@@ -38,12 +43,6 @@ class Node: public std::enable_shared_from_this<Node> {
   // Parent owns children, child points to parents: DAG life = roots life.
   std::vector<std::weak_ptr<Node>> parents_;
   std::vector<std::shared_ptr<Node>> children_;
-
-  // index_as_parent_[i]: j such that Child(i)->Parent(j) = this.
-  std::vector<size_t> index_as_parent_;
-
-  // index_as_child_[i]: j such that Parent(i)->Child(j) = this.
-  std::vector<size_t> index_as_child_;
 };
 
 // A TreeNode object represents a vertex in a tree.
@@ -53,7 +52,7 @@ class TreeNode: public Node {
   TreeNode(std::string name) : Node(name) { }
 
   // Adds a child to the right.
-  void AddChildToTheRight(std::shared_ptr<TreeNode> child);
+  void AddChildToTheRight(const std::shared_ptr<TreeNode> &child);
 
   // Returns the (only) parent of the node if there is one, otherwise nullptr.
   std::shared_ptr<TreeNode> Parent() {
@@ -76,7 +75,7 @@ class TreeNode: public Node {
   std::string ToString();
 
   // Compares the node with the given node.
-  bool Compare(std::shared_ptr<TreeNode> node) {
+  bool Compare(const std::shared_ptr<TreeNode> &node) {
     return (ToString() == node->ToString());
   }
 

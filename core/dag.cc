@@ -9,26 +9,26 @@
 
 namespace dag {
 
-void Node::AddParent(std::shared_ptr<Node> parent) {
+void Node::AddParent(const std::shared_ptr<Node> &parent) {
+  // In the current node, create a weak pointer that references the parent node.
   parents_.push_back(parent);
-  parent->children_.push_back(shared_from_this());
 
-  index_as_child_.push_back(parent->children_.size() - 1);
-  parent->index_as_parent_.push_back(parents_.size() - 1);
+  // In the parent node, create a shared pointer that owns the current node.
+  parent->children_.push_back(shared_from_this());
 }
 
-void Node::AddChild(std::shared_ptr<Node> child) {
+void Node::AddChild(const std::shared_ptr<Node> &child) {
+  // In the current node, create a shared pointer that owns the child node.
   children_.push_back(child);
-  child->parents_.push_back(shared_from_this());
 
-  index_as_parent_.push_back(child->parents_.size() - 1);
-  child->index_as_child_.push_back(children_.size() - 1);
+  // In the child node, create a weak pointer that references the current node.
+  child->parents_.push_back(shared_from_this());
 }
 
 std::shared_ptr<Node> Node::Parent(size_t i) {
   ASSERT(i < NumParents(), "Parent index out of bound: " << i << " / "
          << NumParents());
-  return parents_[i].lock();
+  return parents_[i].lock();  // Create a shared pointer from a weak pointer.
 }
 
 std::shared_ptr<Node> Node::Child(size_t i) {
@@ -37,7 +37,7 @@ std::shared_ptr<Node> Node::Child(size_t i) {
   return children_[i];
 }
 
-void TreeNode::AddChildToTheRight(std::shared_ptr<TreeNode> child) {
+void TreeNode::AddChildToTheRight(const std::shared_ptr<TreeNode> &child) {
   Node::AddChild(child);
 
   // Adjust the span.
@@ -97,8 +97,6 @@ bool TreeNode::Compare(std::string node_string) {
 
 std::shared_ptr<TreeNode> TreeNode::Copy() {
   std::shared_ptr<TreeNode> new_node = std::make_shared<TreeNode>(name_);
-  new_node->index_as_parent_ = index_as_parent_;
-  new_node->index_as_child_ = index_as_child_;
   new_node->span_begin_ = span_begin_;
   new_node->span_end_ = span_end_;
   new_node->min_depth_ = min_depth_;

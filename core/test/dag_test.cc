@@ -4,6 +4,63 @@
 
 #include "../dag.h"
 
+TEST(SharedPointerOwnership, Test) {
+  //           A   .D
+  //            \. /
+  //             .C        Write *X to denote node owned by shared pointer X.
+  //            /  \.
+  //           B    E
+  std::shared_ptr<dag::Node> A = std::make_shared<dag::Node>("A");
+  std::shared_ptr<dag::Node> B = std::make_shared<dag::Node>("B");
+  {
+    std::shared_ptr<dag::Node> C = std::make_shared<dag::Node>("C");
+    A->AddChild(C);
+    C->AddParent(B);
+    {
+      std::shared_ptr<dag::Node> D = std::make_shared<dag::Node>("D");
+      D->AddParent(C);
+      {
+        std::shared_ptr<dag::Node> E = std::make_shared<dag::Node>("E");
+        C->AddChild(E);
+      }
+      // *E still has 1 owner: a shared pointer in children_ of *C.
+    }
+    // *D still has 1 owner: a shared pointer in children_ of *C.
+  }
+  // *C still has 2 owners:
+  //   1. a shared pointer in children_ of *A
+  //   2. a shared pointer in children_ of *B
+
+  EXPECT_EQ(1, A.use_count());  // *A currently owned by: A
+  EXPECT_EQ(1, B.use_count());  // *B currently owned by: B
+  {
+    std::shared_ptr<dag::Node> D0 = A->Child(0)->Child(0);
+    std::shared_ptr<dag::Node> C0 = D0->Parent(0);
+    std::shared_ptr<dag::Node> E0 = C0->Child(1);
+
+    // *D currently owned by: D0, shared pointer in children_ of *C
+    EXPECT_EQ(2, D0.use_count());
+
+    // *E currently owned by: E0, shared pointer in children_ of *C
+    EXPECT_EQ(2, E0.use_count());
+
+    // *C currently owned by: C0, shared pointer in children_ of *A,
+    //                            shared pointer in children_ of *B
+    EXPECT_EQ(3, C0.use_count());
+
+    std::shared_ptr<dag::Node> C1 = D0->Parent(0);
+    std::shared_ptr<dag::Node> C2 = D0->Parent(0);
+    // *C currently owned by: C0, C1, C2, shared pointer in children_ of *A,
+    //                                    shared pointer in children_ of *B
+    //
+    EXPECT_TRUE(C0 == C1);
+    EXPECT_TRUE(C1 == C2);
+    EXPECT_EQ(5, C0.use_count());
+    EXPECT_EQ(5, C1.use_count());
+    EXPECT_EQ(5, C2.use_count());
+  }
+}
+
 TEST(MemoryLeakCheck, Test) {
   //           x   y
   //          / \ / \

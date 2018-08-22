@@ -17,7 +17,7 @@ ifeq ($(shell uname), Linux)
 endif
 INC = -I $(EIGEN) -isystem $(GTEST)/include
 
-TARGETS = neural_test dag_test util_eigen_test util_test
+TARGETS = eval_test neural_test dag_test util_eigen_test util_test
 ################################################################################
 
 
@@ -38,6 +38,9 @@ neural_test: dir $(BUILD)/neural_test.o $(BUILD)/neural.o $(BUILD)/dag.o \
 dag_test: dir $(BUILD)/dag_test.o $(BUILD)/dag.o $(BUILD)/gtest_main.a
 	$(CC) $(filter-out dir,$^) -o $@ $(LIB)
 
+eval_test: dir $(BUILD)/eval_test.o $(BUILD)/eval.o $(BUILD)/gtest_main.a
+	$(CC) $(filter-out dir,$^) -o $@ $(LIB)
+
 util_eigen_test: dir $(BUILD)/util_eigen_test.o $(BUILD)/gtest_main.a
 	$(CC) $(filter-out dir,$^) -o $@ $(LIB)
 
@@ -49,6 +52,12 @@ $(BUILD)/neural_test.o: neural_test.cc
 	$(CC) $(CFLAGS) $(INC) -c $< -o $@
 
 $(BUILD)/neural.o: $(CORE)/neural.* $(CORE)/dag.* $(CORE)/util_eigen.h
+	$(CC) $(CFLAGS) $(INC) -c $< -o $@
+
+$(BUILD)/eval_test.o: eval_test.cc
+	$(CC) $(CFLAGS) $(INC) -c $< -o $@
+
+$(BUILD)/eval.o: $(CORE)/eval.* $(CORE)/util.h
 	$(CC) $(CFLAGS) $(INC) -c $< -o $@
 
 $(BUILD)/dag_test.o: dag_test.cc
