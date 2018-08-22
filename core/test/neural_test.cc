@@ -103,6 +103,56 @@ TEST(ReduceSum, Test) {
   }
 }
 
+TEST(ReduceSumColumnWise, Test) {
+  neural::Model model;
+  size_t i_X = model.AddWeight({{1, 2}, {3, 4}});
+  auto X = model.MakeInput(i_X);
+  auto y = sum_cwise(X);  // [4, 6]
+
+  // 16 + 72 = 88
+  auto z = column(y, 0) * column(y, 0) + 2 * column(y, 1) * column(y, 1);
+  double result = z->ForwardBackward();
+
+  EXPECT_EQ(88, result);
+  EXPECT_EQ(8, X->get_gradient(0, 0));
+  EXPECT_EQ(8, X->get_gradient(1, 0));
+  EXPECT_EQ(24, X->get_gradient(0, 1));
+  EXPECT_EQ(24, X->get_gradient(1, 1));
+}
+
+TEST(ReduceSumRowWise, Test) {
+  neural::Model model;
+  size_t i_X = model.AddWeight({{1, 2}, {3, 4}});
+  auto X = model.MakeInput(i_X);
+  auto y = sum_rwise(X);  // (3, 7)
+
+  // 18 + 49 = 67
+  auto z = 2 * pick(y, {0}) * pick(y, {0}) + pick(y, {1}) * pick(y, {1});
+  double result = z->ForwardBackward();
+
+  EXPECT_EQ(67, result);
+  EXPECT_EQ(12, X->get_gradient(0, 0));
+  EXPECT_EQ(12, X->get_gradient(0, 1));
+  EXPECT_EQ(14, X->get_gradient(1, 0));
+  EXPECT_EQ(14, X->get_gradient(1, 1));
+}
+
+TEST(ReduceAverageColumnRowWise, Test) {
+  neural::Model model;
+  size_t i_X = model.AddWeight({{1, 2}, {3, 4}, {5, 6}});
+  auto X = model.MakeInput(i_X);
+  auto y = average_cwise(X);  // [4, 6]
+  auto z = average_rwise(X);  // (1.5, 3.5, 5.5)
+  auto y_value = y->Forward();
+  auto z_value = z->Forward();
+
+  EXPECT_EQ(3, y_value(0, 0));
+  EXPECT_EQ(4, y_value(0, 1));
+  EXPECT_EQ(1.5, z_value(0, 0));
+  EXPECT_EQ(3.5, z_value(1, 0));
+  EXPECT_EQ(5.5, z_value(2, 0));
+}
+
 TEST(Multiply, Test) {
   neural::Model model;
   size_t i_x = model.AddWeight({{2}});
@@ -203,6 +253,58 @@ TEST(Tanh, Test) {
   EXPECT_NEAR(0.1413, x->get_gradient(0), 1e-4);
 }
 
+TEST(Sum, Test) {
+  neural::Model model;
+  size_t i_X1 = model.AddWeight({{1, 2}, {3, 4}});
+  size_t i_X2 = model.AddWeight({{5, 6}, {7, 8}});
+  size_t i_X3 = model.AddWeight({{9, 10}, {11, 12}});
+  auto X1 = model.MakeInput(i_X1);
+  auto X2 = model.MakeInput(i_X2);
+  auto X3 = model.MakeInput(i_X3);
+  std::vector<std::shared_ptr<neural::Variable>> X123 = {1 * X1, 2 * X2,
+                                                         3 * X3};
+  auto X = sum(X123);
+  sum(X)->ForwardBackward();
+
+  EXPECT_EQ(1, X1->get_gradient(0, 0));
+  EXPECT_EQ(2, X2->get_gradient(0, 0));
+  EXPECT_EQ(3, X3->get_gradient(0, 0));
+}
+
+TEST(ConcatenateVertical, Test) {
+  neural::Model model;
+  size_t i_X1 = model.AddWeight({{1, 2}, {3, 4}, {5, 6}, {7, 8}});
+  size_t i_X2 = model.AddWeight({{9, 10}, {11, 12}});
+  size_t i_X3 = model.AddWeight({{13, 14}, {15, 16}, {17, 18}});
+  auto X1 = model.MakeInput(i_X1);
+  auto X2 = model.MakeInput(i_X2);
+  auto X3 = model.MakeInput(i_X3);
+  std::vector<std::shared_ptr<neural::Variable>> X123 = {X1, X2, X3};
+  auto X = vcat(X123);
+  sum((X % X)/2)->ForwardBackward();
+
+  EXPECT_EQ(1, X1->get_gradient(0, 0));
+  EXPECT_EQ(12, X2->get_gradient(1, 1));
+  EXPECT_EQ(17, X3->get_gradient(2, 0));
+}
+
+TEST(ConcatenateHorizontal, Test) {
+  neural::Model model;
+  size_t i_X1 = model.AddWeight({{1}, {2}});
+  size_t i_X2 = model.AddWeight({{3, 4}, {5, 6}});
+  size_t i_X3 = model.AddWeight({{7}, {9}});
+  auto X1 = model.MakeInput(i_X1);
+  auto X2 = model.MakeInput(i_X2);
+  auto X3 = model.MakeInput(i_X3);
+  std::vector<std::shared_ptr<neural::Variable>> X123 = {X1, X2, X3};
+  auto X = hcat(X123);
+  sum((X % X)/2)->ForwardBackward();
+
+  EXPECT_EQ(1, X1->get_gradient(0, 0));
+  EXPECT_EQ(6, X2->get_gradient(1, 1));
+  EXPECT_EQ(9, X3->get_gradient(1, 0));
+}
+
 TEST(SoftmaxPick, Test) {
   neural::Model model;
   size_t i_x = model.AddWeight({{1, 1}, {2, 2}, {3, 5}});
@@ -241,15 +343,8 @@ TEST(SoftmaxPick, Test) {
 
 TEST(PickNegativeLogSoftmax, Test) {
   neural::Model model;
-  size_t i_x1 = model.AddWeight({{1}});
-  size_t i_x2 = model.AddWeight({{2}});
-  size_t i_x3 = model.AddWeight({{3}});
-  auto x1 = model.MakeInput(i_x1);
-  auto x2 = model.MakeInput(i_x2);
-  auto x3 = model.MakeInput(i_x3);
-  auto x4 = (x1 & x2 & x1) ^ (x1 & x2 & x1);
-  auto x5 = (x1 & x1 & x3) ^ (x1 & x1 & (x3 + 2));
-  auto x = x4 % x5;  // x = [1 1; 2 2; 3 5]
+  size_t i_x = model.AddWeight({{1, 1}, {2, 2}, {3, 5}});
+  auto x = model.MakeInput(i_x);
 
   // [0.0900   0.0171
   //  0.2447   0.0466     =>   -log(0.2447..) - log(0.9362..) = 1.4735
@@ -666,6 +761,56 @@ TEST(InputColumn, MixedUpdates) {
   EXPECT_EQ(2, gd.num_column_updates(i_X, 0));
   EXPECT_EQ(1, gd.num_column_updates(i_X, 1));
   EXPECT_EQ(1, gd.num_column_updates(i_X, 2));
+}
+
+TEST(RNN, EncodeByFinalTop) {
+  neural::Model model;
+  size_t i_a = model.AddWeight(10, 1, "unit-variance");
+  size_t i_b = model.AddWeight(10, 1, "unit-variance");
+  neural::LSTM lstm(2, 10, 10, &model);
+
+  double result_value = 0.0;
+  Eigen::MatrixXd a_gradient;
+  Eigen::MatrixXd b_gradient;
+
+  // Run LSTM on each sequence separately and use the final top hidden states.
+  {
+    auto a = model.MakeInput(i_a);
+    auto b = model.MakeInput(i_b);
+    std::vector<std::shared_ptr<neural::Variable>> seq1 = {a, a, b};
+    std::vector<std::shared_ptr<neural::Variable>> seq2 = {a, a};
+    std::vector<std::shared_ptr<neural::Variable>> seq3 = {a, a, b, b};
+    std::vector<std::shared_ptr<neural::Variable>> seq4 = {b};
+    auto h1 = lstm.Transduce(seq1).back().back()[0];
+    auto h2 = lstm.Transduce(seq2).back().back()[0];
+    auto h3 = lstm.Transduce(seq3).back().back()[0];
+    auto h4 = lstm.Transduce(seq4).back().back()[0];
+    auto hs = {h1, h2, h3, h4};
+    result_value = sum(sum(hs))->ForwardBackward();
+    a_gradient = a->ref_gradient();
+    b_gradient = b->ref_gradient();
+    model.ClearComputation();
+  }
+
+  // Run LSTM on batch.
+  auto a = model.MakeInput(i_a);
+  auto b = model.MakeInput(i_b);
+  std::vector<std::shared_ptr<neural::Variable>> seq1 = {a, a, b};
+  std::vector<std::shared_ptr<neural::Variable>> seq2 = {a, a};
+  std::vector<std::shared_ptr<neural::Variable>> seq3 = {a, a, b, b};
+  std::vector<std::shared_ptr<neural::Variable>> seq4 = {b};
+  auto seqs = {seq1, seq2, seq3, seq4};
+  auto hs = lstm.EncodeByFinalTop(seqs);
+  double this_result_value = sum(sum(hs))->ForwardBackward();
+  a_gradient = a->ref_gradient();
+  Eigen::MatrixXd this_a_gradient = a->ref_gradient();
+  Eigen::MatrixXd this_b_gradient = b->ref_gradient();
+
+  EXPECT_NEAR(result_value, this_result_value, 1e-10);
+  for (size_t i = 0; i < 10; ++i) {
+    EXPECT_NEAR(a_gradient(i), this_a_gradient(i), 1e-10);
+    EXPECT_NEAR(b_gradient(i), this_b_gradient(i), 1e-10);
+  }
 }
 
 int main(int argc, char** argv) {

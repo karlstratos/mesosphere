@@ -15,6 +15,16 @@
 
 namespace neural {
 
+// Aliases for readability
+template<class T>
+using sp = std::shared_ptr<T>;
+template<class T>
+using sp_v1 = std::vector<std::shared_ptr<T>>;
+template<class T>
+using sp_v2 = std::vector<std::vector<std::shared_ptr<T>>>;
+template<class T>
+using sp_v3 = std::vector<std::vector<std::vector<std::shared_ptr<T>>>>;
+
 // Abstract class for a variable in a computation graph.
 class Variable: public dag::Node {
  public:
@@ -24,85 +34,85 @@ class Variable: public dag::Node {
   Variable() : dag::Node() { }
 
   //------- binary operators ---------------------------------------------------
-  friend std::shared_ptr<Variable> operator+(std::shared_ptr<Variable> X,
-                                             std::shared_ptr<Variable> Y);
-  friend std::shared_ptr<Variable> operator-(std::shared_ptr<Variable> X,
-                                             std::shared_ptr<Variable> Y);
-  friend std::shared_ptr<Variable> operator+(std::shared_ptr<Variable> X,
-                                             double scalar_value);
-  friend std::shared_ptr<Variable> operator+(double scalar_value,
-                                             std::shared_ptr<Variable> X) {
+  friend sp<Variable> operator+(const sp<Variable> &X, const sp<Variable> &Y);
+  friend sp<Variable> operator-(const sp<Variable> &X, const sp<Variable> &Y);
+  friend sp<Variable> operator+(const sp<Variable> &X, double scalar_value);
+  friend sp<Variable> operator+(double scalar_value, const sp<Variable> &X) {
     return X + scalar_value;
   }
-  friend std::shared_ptr<Variable> operator-(std::shared_ptr<Variable> X,
-                                             double scalar_value) {
+  friend sp<Variable> operator-(const sp<Variable> &X, double scalar_value) {
     return X + (-scalar_value);
   }
   // X * Y: linear algebraic matrix-matrix multiplication
-  friend std::shared_ptr<Variable> operator*(std::shared_ptr<Variable> X,
-                                             std::shared_ptr<Variable> Y);
+  friend sp<Variable> operator*(const sp<Variable> &X, const sp<Variable> &Y);
   // X % Y: element-wise multiplication
-  friend std::shared_ptr<Variable> operator%(std::shared_ptr<Variable> X,
-                                             std::shared_ptr<Variable> Y);
-  friend std::shared_ptr<Variable> operator*(std::shared_ptr<Variable> X,
-                                             double scalar_value);
-  friend std::shared_ptr<Variable> operator*(double scalar_value,
-                                             std::shared_ptr<Variable> X) {
+  friend sp<Variable> operator%(const sp<Variable> &X, const sp<Variable> &Y);
+  friend sp<Variable> operator*(const sp<Variable> &X, double scalar_value);
+  friend sp<Variable> operator*(double scalar_value, const sp<Variable> &X) {
     return X * scalar_value;
   }
-  friend std::shared_ptr<Variable> operator/(std::shared_ptr<Variable> X,
-                                             double scalar_value) {
+  friend sp<Variable> operator/(const sp<Variable> &X, double scalar_value) {
     return X * (1.0 / scalar_value);
   }
-  // X & Y: vertical concatenation
-  friend std::shared_ptr<Variable> operator&(std::shared_ptr<Variable> X,
-                                             std::shared_ptr<Variable> Y);
-  // X ^ Y: horizontal concatenation
-  friend std::shared_ptr<Variable> operator^(std::shared_ptr<Variable> X,
-                                             std::shared_ptr<Variable> Y);
+  friend sp<Variable> operator&(const sp<Variable> &X, const sp<Variable> &Y) {
+    return vcat(std::initializer_list<sp<Variable>>{X, Y});
+  }
+  friend sp<Variable> operator^(const sp<Variable> &X, const sp<Variable> &Y) {
+    return hcat(std::initializer_list<sp<Variable>>{X, Y});
+  }
   // dot(X, Y): column-wise dot product
-  friend std::shared_ptr<Variable> dot(std::shared_ptr<Variable> X,
-                                       std::shared_ptr<Variable> Y);
-  friend std::shared_ptr<Variable> cross_entropy(std::shared_ptr<Variable> X,
-                                                 std::shared_ptr<Variable> Y,
-                                                 bool base2=false) {
+  friend sp<Variable> dot(const sp<Variable> &X, const sp<Variable> &Y);
+  // cross_entroy(X, Y): column-wise cross entropy where column = distribution
+  friend sp<Variable> cross_entropy(const sp<Variable> &X,
+                                    const sp<Variable> &Y, bool base2=false) {
     return (base2) ? -sum_cwise(X % log2(Y)) : -sum_cwise(X % log(Y));
   }
 
   //------- unary operators ----------------------------------------------------
-  friend std::shared_ptr<Variable> operator-(std::shared_ptr<Variable> X);
-  friend std::shared_ptr<Variable> sum(std::shared_ptr<Variable> X);
-  friend std::shared_ptr<Variable> sum_cwise(std::shared_ptr<Variable> X);
-  friend std::shared_ptr<Variable> sum(std::vector<std::shared_ptr<Variable>>
-                                       Xs);
-  friend std::shared_ptr<Variable> average(std::shared_ptr<Variable> X);
-  friend std::shared_ptr<Variable> average(
-      std::vector<std::shared_ptr<Variable>> Xs) { return sum(Xs) / Xs.size(); }
-  friend std::shared_ptr<Variable> transpose(std::shared_ptr<Variable> X);
-  // squared_norm(X): column-wise squared norm
-  friend std::shared_ptr<Variable> squared_norm(std::shared_ptr<Variable> X) {
-    return dot(X, X);
+  friend sp<Variable> operator-(const sp<Variable> &X);
+  friend sp<Variable> sum(const sp<Variable> &X);
+  friend sp<Variable> sum_cwise(const sp<Variable> &X);
+  friend sp<Variable> sum_rwise(const sp<Variable> &X);
+  friend sp<Variable> average(const sp<Variable> &X) {
+    return sum(X) / X->ref_gradient().size();
   }
-  friend std::shared_ptr<Variable> logistic(std::shared_ptr<Variable> X);
-  friend std::shared_ptr<Variable> log(std::shared_ptr<Variable> X);
-  friend std::shared_ptr<Variable> log2(std::shared_ptr<Variable> X) {
+  friend sp<Variable> average_cwise(const sp<Variable> &X) {
+    return sum_cwise(X) / X->ref_gradient().rows();
+  }
+  friend sp<Variable> average_rwise(const sp<Variable> &X) {
+    return sum_rwise(X) / X->ref_gradient().cols();
+  }
+  friend sp<Variable> transpose(const sp<Variable> &X);
+  // squared_norm(X): column-wise squared norm
+  friend sp<Variable> squared_norm(const sp<Variable> &X) { return dot(X, X); }
+  friend sp<Variable> logistic(const sp<Variable> &X);
+  friend sp<Variable> log(const sp<Variable> &X);
+  friend sp<Variable> log2(const sp<Variable> &X) {
     return log(X) / std::log(2.0);
   }
-  friend std::shared_ptr<Variable> tanh(std::shared_ptr<Variable> X);
-  friend std::shared_ptr<Variable> relu(std::shared_ptr<Variable> X);
-  friend std::shared_ptr<Variable> softmax(std::shared_ptr<Variable> X);
-  friend std::shared_ptr<Variable> entropy(std::shared_ptr<Variable> X,
-                                           bool base2=false) {
+  friend sp<Variable> tanh(const sp<Variable> &X);
+  friend sp<Variable> relu(const sp<Variable> &X);
+  friend sp<Variable> softmax(const sp<Variable> &X);
+  friend sp<Variable> entropy(const sp<Variable> &X, bool base2=false) {
     return cross_entropy(X, X, base2);
   }
 
+  //------- list operators -----------------------------------------------------
+  friend sp<Variable> sum(const sp_v1<Variable> &Xs);
+  friend sp<Variable> average(const sp_v1<Variable> &Xs) {
+    return sum(Xs) / Xs.size();
+  }
+  friend sp<Variable> vcat(const sp_v1<Variable> &Xs);
+  friend sp<Variable> hcat(const sp_v1<Variable> &Xs);
+
   //------- pick operators -----------------------------------------------------
-  friend std::shared_ptr<Variable> pick(std::shared_ptr<Variable> X,
-                                        const std::vector<size_t> &indices);
-  friend std::shared_ptr<Variable> cross_entropy(
-      std::shared_ptr<Variable> X, const std::vector<size_t> &indices);
-  friend std::shared_ptr<Variable> binary_cross_entropy(
-      std::shared_ptr<Variable> X, const std::vector<bool> &flags);
+  friend sp<Variable> pick(const sp<Variable> &X,
+                           const std::vector<size_t> &indices);
+  friend sp<Variable> column(const sp<Variable> &X, size_t index);
+  friend sp<Variable> cross_entropy(const sp<Variable> &X,
+                                    const std::vector<size_t> &indices);
+  friend sp<Variable> binary_cross_entropy(const sp<Variable> &X,
+                                           const std::vector<bool> &flags);
 
   //------- class methods ------------------------------------------------------
   // References to value/gradient associated with the variable.
@@ -127,8 +137,7 @@ class Variable: public dag::Node {
 
   // Calculates value and pushes the variable to the topological order if given
   // one and has not been appended yet. Returns the computed value.
-  Eigen::Ref<Eigen::MatrixXd> Forward(std::vector<std::shared_ptr<Variable>>
-                                      *topological_order);
+  Eigen::Ref<Eigen::MatrixXd> Forward(sp_v1<Variable> *topological_order);
   Eigen::Ref<Eigen::MatrixXd> Forward() { return Forward(nullptr); }
 
   // Calculates value from parents (assumed to have their values).
@@ -142,19 +151,18 @@ class Variable: public dag::Node {
   //  forward computation.)
   //
   // Calculates gradients of all variables in the graph.
-  void Backward(const std::vector<std::shared_ptr<Variable>>
-                &topological_order);
+  void Backward(const sp_v1<Variable> &topological_order);
 
   // Calls Forward and then Backward, returns the final output value.
   double ForwardBackward();
 
-  std::shared_ptr<Variable> Parent(size_t i) {
+  sp<Variable> Parent(size_t i) {
     return std::static_pointer_cast<Variable>(dag::Node::Parent(i));
   }
-  std::shared_ptr<Variable> Child(size_t i) {
+  sp<Variable> Child(size_t i) {
     return std::static_pointer_cast<Variable>(dag::Node::Child(i));
   }
-  std::shared_ptr<Variable> shared_from_this() {
+  sp<Variable> shared_from_this() {
     return std::static_pointer_cast<Variable>(dag::Node::shared_from_this());
   }
 
@@ -250,19 +258,20 @@ class ReduceSumColumnWise: public Variable {
     value_ = Parent(0)->ref_value().colwise().sum();
   }
   void PropagateGradient() override {
-    Parent(0)->ref_gradient().array() += gradient_(0);
+    Parent(0)->ref_gradient().rowwise() +=
+        static_cast<Eigen::RowVectorXd>(gradient_);
   }
 };
 
-// (1/n) sum_i X_i
-class ReduceAverage: public Variable {
+// sum_i X_i: row-wise
+class ReduceSumRowWise: public Variable {
  public:
   void ComputeValue() override {
-    value_ = Eigen::MatrixXd::Constant(1, 1, Parent(0)->ref_value().mean());
+    value_ = Parent(0)->ref_value().rowwise().sum();
   }
   void PropagateGradient() override {
-    Parent(0)->ref_gradient().array() +=
-        gradient_(0) / Parent(0)->ref_value().size();
+    Parent(0)->ref_gradient().colwise() +=
+        static_cast<Eigen::VectorXd>(gradient_);
   }
 };
 
@@ -298,7 +307,14 @@ class MultiplyScalar: public Variable {
   double scalar_value_;
 };
 
-// [X; Y]
+// X^{(1)} + ... + X^{(n)}: total sum (avoids creating n-1 nodes)
+class Sum: public Variable {
+ public:
+  void ComputeValue() override;
+  void PropagateGradient() override;
+};
+
+// [X_1;...;X_n]
 class ConcatenateVertical: public Variable {
  public:
   void ComputeValue() override;
@@ -361,7 +377,8 @@ class Log: public Variable {
   }
   void PropagateGradient() override {
     Parent(0)->ref_gradient() += gradient_.cwiseProduct(
-        value_.unaryExpr([](double x) { return 1.0 / x; }));
+        // BUG FIX (8/15/18): log(x) Jacobian is 1/x, not 1/log(x) = 1/value_!
+        Parent(0)->ref_value().unaryExpr([](double x) { return 1.0 / x; }));
   }
 };
 
@@ -407,6 +424,18 @@ class Pick: public Variable {
   void PropagateGradient() override;
  protected:
   std::vector<size_t> indices_;
+};
+
+// (X, l) => X(:,l)
+class PickColumn: public Variable {
+ public:
+  PickColumn(size_t index) : Variable(), index_(index) { }
+  void ComputeValue() override { value_ = Parent(0)->ref_value().col(index_); }
+  void PropagateGradient() override {
+    Parent(0)->ref_gradient().col(index_) += gradient_;
+  }
+ protected:
+  size_t index_;
 };
 
 // - log [softmax(x)]_l: column-wise
@@ -459,6 +488,11 @@ class Model {
 
   // Adds a temporary weight and its temporary gradient to temporary holders
   // (cleared when the current graph is gone), returns its temporary index.
+  size_t AddTemporaryWeight(size_t num_rows, size_t num_columns,
+                            std::string initialization_method) {
+    return AddTemporaryWeight(util_eigen::initialize(num_rows, num_columns,
+                                                     initialization_method));
+  }
   size_t AddTemporaryWeight(const std::vector<std::vector<double>> &rows) {
     return AddTemporaryWeight(util_eigen::construct_matrix_from_rows(rows));
   }
@@ -466,17 +500,16 @@ class Model {
 
   // Creates an Input pointer for a weight, resets its gradient to zero,
   // and includes the weight to the update set unless frozen.
-  std::shared_ptr<Input> MakeInput(size_t weight_index);
+  sp<Input> MakeInput(size_t weight_index);
 
   // Creates an InputColumn pointer for a certain column of the weight, resets
   // the corresponding column of the gradient to zero, and includes the weight
   // column  to the update column set unless frozen.
-  std::shared_ptr<InputColumn> MakeInputColumn(size_t weight_index,
-                                               size_t column_index);
+  sp<InputColumn> MakeInputColumn(size_t weight_index, size_t column_index);
 
   // Creates an Input pointer for a temporary weight, resets its temporary
   // gradient to zero. Do not mix indices between model/temporary weights!
-  std::shared_ptr<Input> MakeTemporaryInput(size_t temporary_index);
+  sp<Input> MakeTemporaryInput(size_t temporary_index);
 
   // Clear intermediate quantities created in the current computation graph.
   // This must be called at each computation during inference to free memory.
@@ -507,14 +540,19 @@ class Model {
   std::unordered_map<size_t, std::unordered_set<size_t>> update_column_set_;
   bool made_input_ = false;
 
-  // Holder for temporary input variables that are not part of the model.
+  // Temporary weights are not part of the model and will be cleared.
   std::vector<Eigen::MatrixXd> temporary_weights_;
   std::vector<Eigen::MatrixXd> temporary_gradients_;
   bool made_temporary_input_ = false;
 
-  // Holder for active variables in the current computation graph (to prevent
-  // them from going out of scope and dying).
-  std::vector<std::shared_ptr<Variable>> active_variables_;
+  // Holders for shared pointers to input nodes used in the current computation
+  // graph. They serve two purposes:
+  //   1. To prevent the nodes from expiring within the current computation
+  //   2. To cache: avoid making multiple shared pointers to the same node
+  std::unordered_map<size_t, sp<Input>> active_weights_;
+  std::unordered_map<size_t, std::unordered_map<size_t, sp<InputColumn>>>
+  active_column_weights_;
+  std::unordered_map<size_t, sp<Input>> active_temporary_weights_;
 };
 
 // Abstract class for different model updating schemes.
@@ -589,41 +627,39 @@ class RNN {
   // Computes a sequence of state stacks (each state consisting of different
   // types) for a sequence of observations. The output at indices [t][l][s] is
   // the state at position t in layer l of type s (default state type s=0).
-  std::vector<std::vector<std::vector<std::shared_ptr<Variable>>>> Transduce(
-      const std::vector<std::shared_ptr<Variable>> &observation_sequence) {
+  sp_v3<Variable> Transduce(const sp_v1<Variable> &observation_sequence) {
     return Transduce(observation_sequence, {});
   }
-  std::vector<std::vector<std::vector<std::shared_ptr<Variable>>>> Transduce(
-      const std::vector<std::shared_ptr<Variable>> &observation_sequence,
-      const std::vector<std::vector<std::shared_ptr<Variable>>>
-      &initial_state_stack);
+  sp_v3<Variable> Transduce(const sp_v1<Variable> &observation_sequence,
+                            const sp_v2<Variable> &initial_state_stack);
 
   // Batch unbatched observation sequences with zero padding.
-  std::vector<std::shared_ptr<Variable>> Batch(
-      const std::vector<std::vector<std::shared_ptr<Variable>>>
-      &unbatched_observation_sequences);
+  sp_v1<Variable> Batch(const sp_v2<Variable> &unbatched_observation_sequences);
+
+  // (Xs_1 ... Xs_N) => (HH_1.back().back()[0] ... HH_N.back().back()[0])
+  sp_v1<Variable> EncodeByFinalTop(const sp_v2<Variable>
+                                   &unbatched_observation_sequences,
+                                   bool reverse=false);
 
   // Computes a new state stack. The output at indices [l][s] is the state in
   // layer l of type s.
-  std::vector<std::vector<std::shared_ptr<Variable>>> ComputeNewStateStack(
-      const std::shared_ptr<Variable> &observation) {
+  sp_v2<Variable> ComputeNewStateStack(const sp<Variable> &observation) {
     return ComputeNewStateStack(observation, {}, true);
   }
-  std::vector<std::vector<std::shared_ptr<Variable>>> ComputeNewStateStack(
-      const std::shared_ptr<Variable> &observation,
-      const std::vector<std::vector<std::shared_ptr<Variable>>>
-      &previous_state_stack, bool is_beginning=false);
+  sp_v2<Variable> ComputeNewStateStack(const sp<Variable> &observation,
+                                       const sp_v2<Variable>
+                                       &previous_state_stack,
+                                       bool is_beginning=false);
 
   // Computes a new state for a particular layer l. The output at index [s] is
   // the state in layer l of type s (default state type s=0).
-  virtual std::vector<std::shared_ptr<Variable>> ComputeNewState(
-      const std::shared_ptr<Variable> &observation,
-      const std::vector<std::shared_ptr<Variable>> &previous_state,
-      size_t layer) = 0;
+  virtual sp_v1<Variable> ComputeNewState(const sp<Variable> &observation,
+                                          const sp_v1<Variable> &previous_state,
+                                          size_t layer) = 0;
 
   void UseDropout(double dropout_rate, size_t random_seed);
   void StopDropout() { dropout_rate_ = 0.0; }
-  void ComputeDropoutWeights();
+  void InitializeDropoutWeights();
 
  protected:
   size_t num_layers_;
@@ -649,10 +685,9 @@ class SimpleRNN: public RNN {
   SimpleRNN(size_t num_layers, size_t dim_observation, size_t dim_state,
             Model *model_address);
 
-  std::vector<std::shared_ptr<Variable>> ComputeNewState(
-      const std::shared_ptr<Variable> &observation,
-      const std::vector<std::shared_ptr<Variable>> &previous_state,
-      size_t layer) override;
+  sp_v1<Variable> ComputeNewState(const sp<Variable> &observation,
+                                  const sp_v1<Variable> &previous_state,
+                                  size_t layer) override;
 
   void SetWeights(const Eigen::MatrixXd &U_weight,
                   const Eigen::MatrixXd &V_weight,
@@ -669,10 +704,9 @@ class LSTM: public RNN {
  public:
   LSTM(size_t num_layers, size_t dim_x, size_t dim_h, Model *model_address);
 
-  std::vector<std::shared_ptr<Variable>> ComputeNewState(
-      const std::shared_ptr<Variable> &observation,
-      const std::vector<std::shared_ptr<Variable>> &previous_state,
-      size_t layer) override;
+  sp_v1<Variable> ComputeNewState(const sp<Variable> &observation,
+                                  const sp_v1<Variable> &previous_state,
+                                  size_t layer) override;
 
   void SetWeights(const Eigen::MatrixXd &raw_U_weight,
                   const Eigen::MatrixXd &raw_V_weight,

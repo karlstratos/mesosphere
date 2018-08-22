@@ -4,8 +4,7 @@
 
 namespace neural {
 
-std::shared_ptr<Variable> operator+(std::shared_ptr<Variable> X,
-                                    std::shared_ptr<Variable> Y) {
+sp<Variable> operator+(const sp<Variable> &X, const sp<Variable> &Y) {
   bool matrix_vector = (X->NumColumns() != Y->NumColumns()) &&
                        (Y->NumColumns() == 1);
   ASSERT(X->NumRows() == Y->NumRows() && (X->NumColumns() == Y->NumColumns() ||
@@ -20,8 +19,7 @@ std::shared_ptr<Variable> operator+(std::shared_ptr<Variable> X,
   return Z;
 }
 
-std::shared_ptr<Variable> operator-(std::shared_ptr<Variable> X,
-                                    std::shared_ptr<Variable> Y) {
+sp<Variable> operator-(const sp<Variable> &X, const sp<Variable> &Y) {
   bool matrix_vector = (X->NumColumns() != Y->NumColumns()) &&
                        (Y->NumColumns() == 1);
   ASSERT(X->NumRows() == Y->NumRows() && (X->NumColumns() == Y->NumColumns() ||
@@ -36,8 +34,7 @@ std::shared_ptr<Variable> operator-(std::shared_ptr<Variable> X,
   return Z;
 }
 
-std::shared_ptr<Variable> operator+(std::shared_ptr<Variable> X,
-                                    double scalar_value) {
+sp<Variable> operator+(const sp<Variable> &X, double scalar_value) {
   auto Z = std::make_shared<AddScalar>();
   Z->AddParent(X);
   Z->gradient_ = Eigen::MatrixXd::Zero(X->NumRows(), X->NumColumns());
@@ -45,8 +42,7 @@ std::shared_ptr<Variable> operator+(std::shared_ptr<Variable> X,
   return Z;
 }
 
-std::shared_ptr<Variable> operator*(std::shared_ptr<Variable> X,
-                                    std::shared_ptr<Variable> Y) {
+sp<Variable> operator*(const sp<Variable> &X, const sp<Variable> &Y) {
   ASSERT(X->NumColumns() == Y->NumRows(),
          "Multiply: dimensions do not match, given "
          << X->Shape() << " and " << Y->Shape());
@@ -57,8 +53,7 @@ std::shared_ptr<Variable> operator*(std::shared_ptr<Variable> X,
   return Z;
 }
 
-std::shared_ptr<Variable> operator%(std::shared_ptr<Variable> X,
-                                    std::shared_ptr<Variable> Y) {
+sp<Variable> operator%(const sp<Variable> &X, const sp<Variable> &Y) {
   ASSERT(X->NumRows() == Y->NumRows() && X->NumColumns() == Y->NumColumns(),
          "Multiply element-wise: dimensions do not match, given "
          << X->Shape() << " and " << Y->Shape());
@@ -69,8 +64,7 @@ std::shared_ptr<Variable> operator%(std::shared_ptr<Variable> X,
   return Z;
 }
 
-std::shared_ptr<Variable> operator*(std::shared_ptr<Variable> X,
-                                    double scalar_value) {
+sp<Variable> operator*(const sp<Variable> &X, double scalar_value) {
   auto Z = std::make_shared<MultiplyScalar>();
   Z->AddParent(X);
   Z->gradient_ = Eigen::MatrixXd::Zero(X->NumRows(), X->NumColumns());
@@ -78,32 +72,7 @@ std::shared_ptr<Variable> operator*(std::shared_ptr<Variable> X,
   return Z;
 }
 
-std::shared_ptr<Variable> operator&(std::shared_ptr<Variable> X,
-                                    std::shared_ptr<Variable> Y) {
-  ASSERT(X->NumColumns() == Y->NumColumns(),
-         "vertical cat between " << X->Shape() << ", " << Y->Shape());
-  auto Z = std::make_shared<ConcatenateVertical>();
-  Z->AddParent(X);
-  Z->AddParent(Y);
-  Z->gradient_ = Eigen::MatrixXd::Zero(X->NumRows() + Y->NumRows(),
-                                       X->NumColumns());
-  return Z;
-}
-
-std::shared_ptr<Variable> operator^(std::shared_ptr<Variable> X,
-                                    std::shared_ptr<Variable> Y) {
-  ASSERT(X->NumRows() == Y->NumRows(),
-         "horizontal cat between " << X->Shape() << ", " << Y->Shape());
-  auto Z = std::make_shared<ConcatenateHorizontal>();
-  Z->AddParent(X);
-  Z->AddParent(Y);
-  Z->gradient_ = Eigen::MatrixXd::Zero(X->NumRows(),
-                                       X->NumColumns() + Y->NumColumns());
-  return Z;
-}
-
-std::shared_ptr<Variable> dot(std::shared_ptr<Variable> X,
-                              std::shared_ptr<Variable> Y) {
+sp<Variable> dot(const sp<Variable> &X, const sp<Variable> &Y) {
   ASSERT(X->NumRows() == Y->NumRows() &&
          X->NumColumns() == Y->NumColumns(),
          "column-wise dot between " << X->Shape() << ", " << Y->Shape());
@@ -114,84 +83,115 @@ std::shared_ptr<Variable> dot(std::shared_ptr<Variable> X,
   return Z;
 }
 
-std::shared_ptr<Variable> operator-(std::shared_ptr<Variable> X) {
+sp<Variable> operator-(const sp<Variable> &X) {
   auto Z = std::make_shared<FlipSign>();
   Z->AddParent(X);
   Z->gradient_ = Eigen::MatrixXd::Zero(X->NumRows(), X->NumColumns());
   return Z;
 }
 
-std::shared_ptr<Variable> sum(std::shared_ptr<Variable> X) {
+sp<Variable> sum(const sp<Variable> &X) {
   auto Z = std::make_shared<ReduceSum>();
   Z->AddParent(X);
   Z->gradient_ = Eigen::MatrixXd::Zero(1, 1);
   return Z;
 }
 
-std::shared_ptr<Variable> sum_cwise(std::shared_ptr<Variable> X) {
+sp<Variable> sum_cwise(const sp<Variable> &X) {
   auto Z = std::make_shared<ReduceSumColumnWise>();
   Z->AddParent(X);
   Z->gradient_ = Eigen::MatrixXd::Zero(1, X->NumColumns());
   return Z;
 }
 
-std::shared_ptr<Variable> sum(std::vector<std::shared_ptr<Variable>> Xs) {
-  auto Z = Xs[0];
-  for (size_t i = 1; i < Xs.size(); ++i) { Z = Z + Xs[i]; }
-  return Z;
-}
-
-std::shared_ptr<Variable> average(std::shared_ptr<Variable> X) {
-  auto Z = std::make_shared<ReduceAverage>();
+sp<Variable> sum_rwise(const sp<Variable> &X) {
+  auto Z = std::make_shared<ReduceSumRowWise>();
   Z->AddParent(X);
-  Z->gradient_ = Eigen::MatrixXd::Zero(1, 1);
+  Z->gradient_ = Eigen::MatrixXd::Zero(X->NumRows(), 1);
   return Z;
 }
 
-std::shared_ptr<Variable> transpose(std::shared_ptr<Variable> X) {
+sp<Variable> transpose(const sp<Variable> &X) {
   auto Z = std::make_shared<Transpose>();
   Z->AddParent(X);
   Z->gradient_ = Eigen::MatrixXd::Zero(X->NumColumns(), X->NumRows());
   return Z;
 }
 
-std::shared_ptr<Variable> logistic(std::shared_ptr<Variable> X) {
+sp<Variable> logistic(const sp<Variable> &X) {
   auto Z = std::make_shared<Logistic>();
   Z->AddParent(X);
   Z->gradient_ = Eigen::MatrixXd::Zero(X->NumRows(), X->NumColumns());
   return Z;
 }
 
-std::shared_ptr<Variable> log(std::shared_ptr<Variable> X) {
+sp<Variable> log(const sp<Variable> &X) {
   auto Z = std::make_shared<Log>();
   Z->AddParent(X);
   Z->gradient_ = Eigen::MatrixXd::Zero(X->NumRows(), X->NumColumns());
   return Z;
 }
 
-std::shared_ptr<Variable> tanh(std::shared_ptr<Variable> X) {
+sp<Variable> tanh(const sp<Variable> &X) {
   auto Z = std::make_shared<Tanh>();
   Z->AddParent(X);
   Z->gradient_ = Eigen::MatrixXd::Zero(X->NumRows(), X->NumColumns());
   return Z;
 }
 
-std::shared_ptr<Variable> relu(std::shared_ptr<Variable> X) {
+sp<Variable> relu(const sp<Variable> &X) {
   auto Z = std::make_shared<ReLU>();
   Z->AddParent(X);
   Z->gradient_ = Eigen::MatrixXd::Zero(X->NumRows(), X->NumColumns());
   return Z;
 }
 
-std::shared_ptr<Variable> softmax(std::shared_ptr<Variable> X) {
+sp<Variable> softmax(const sp<Variable> &X) {
   auto Z = std::make_shared<Softmax>();
   Z->AddParent(X);
   Z->gradient_ = Eigen::MatrixXd::Zero(X->NumRows(), X->NumColumns());
   return Z;
 }
 
-std::shared_ptr<Variable> pick(std::shared_ptr<Variable> X,
-                               const std::vector<size_t> &indices) {
+sp<Variable> sum(const sp_v1<Variable> &Xs) {
+  auto Z = std::make_shared<Sum>();
+  for (const auto &X : Xs) {
+    ASSERT(X->NumRows() == Xs[0]->NumRows() &&
+           X->NumColumns() == Xs[0]->NumColumns(),
+           "sum between " << X->Shape() << ", " << Xs[0]->Shape());
+    Z->AddParent(X);
+  }
+  Z->gradient_ = Eigen::MatrixXd::Zero(Xs[0]->NumRows(), Xs[0]->NumColumns());
+  return Z;
+}
+
+sp<Variable> vcat(const sp_v1<Variable> &Xs) {
+  size_t num_rows = 0;
+  auto Z = std::make_shared<ConcatenateVertical>();
+  for (const auto &X : Xs) {
+    ASSERT(X->NumColumns() == Xs[0]->NumColumns(),
+           "vertical cat between " << X->Shape() << ", " << Xs[0]->Shape());
+    Z->AddParent(X);
+    num_rows += X->NumRows();
+  }
+  Z->gradient_ = Eigen::MatrixXd::Zero(num_rows, Xs[0]->NumColumns());
+  return Z;
+}
+
+sp<Variable> hcat(const sp_v1<Variable> &Xs) {
+  size_t num_columns = 0;
+  auto Z = std::make_shared<ConcatenateHorizontal>();
+  for (const auto &X : Xs) {
+    ASSERT(X->NumRows() == Xs[0]->NumRows(),
+           "horizontal cat between " << X->Shape() << ", " << Xs[0]->Shape());
+    Z->AddParent(X);
+    num_columns += X->NumColumns();
+  }
+  Z->gradient_ = Eigen::MatrixXd::Zero(Xs[0]->NumRows(), num_columns);
+  return Z;
+}
+
+sp<Variable> pick(const sp<Variable> &X, const std::vector<size_t> &indices) {
   ASSERT(X->NumColumns() == indices.size(), X->Shape() << ", vs "
          << indices.size() << " indices");
   auto Z = std::make_shared<Pick>(indices);
@@ -200,8 +200,17 @@ std::shared_ptr<Variable> pick(std::shared_ptr<Variable> X,
   return Z;
 }
 
-std::shared_ptr<Variable> cross_entropy(
-    std::shared_ptr<Variable> X, const std::vector<size_t> &indices) {
+sp<Variable> column(const sp<Variable> &X, size_t index) {
+  ASSERT(index < X->NumColumns(), "trying to pick column " << index
+         << " from X with shape " << X->Shape());
+  auto Z = std::make_shared<PickColumn>(index);
+  Z->AddParent(X);
+  Z->gradient_ = Eigen::MatrixXd::Zero(X->NumRows(), 1);
+  return Z;
+}
+
+sp<Variable> cross_entropy(const sp<Variable> &X,
+                           const std::vector<size_t> &indices) {
   ASSERT(X->NumColumns() == indices.size(), X->Shape() << ", vs "
          << indices.size() << " indices");
   auto Z = std::make_shared<PickNegativeLogSoftmax>(indices);
@@ -210,8 +219,8 @@ std::shared_ptr<Variable> cross_entropy(
   return Z;
 }
 
-std::shared_ptr<Variable> binary_cross_entropy(
-    std::shared_ptr<Variable> X, const std::vector<bool> &flags) {
+sp<Variable> binary_cross_entropy(const sp<Variable> &X,
+                                  const std::vector<bool> &flags) {
   ASSERT(X->NumRows() == 1, "X not a row vector: " << X->Shape());
   ASSERT(X->NumColumns() == flags.size(), X->Shape() << ", vs "
          << flags.size() << " flags");
@@ -241,8 +250,8 @@ double Variable::get_gradient(size_t i) {
   }
 }
 
-Eigen::Ref<Eigen::MatrixXd> Variable::Forward(
-    std::vector<std::shared_ptr<Variable>> *topological_order) {
+Eigen::Ref<Eigen::MatrixXd> Variable::Forward(sp_v1<Variable>
+                                              *topological_order) {
   // Do zero work if the value has been computed AND has been appended to order.
   if (ref_value().cols() > 0 &&
       (appended_to_topological_order_ || !topological_order)) {
@@ -263,8 +272,7 @@ Eigen::Ref<Eigen::MatrixXd> Variable::Forward(
   return ref_value();
 }
 
-void Variable::Backward(const std::vector<std::shared_ptr<Variable>>
-                        &topological_order) {
+void Variable::Backward(const sp_v1<Variable> &topological_order) {
   ASSERT(ref_value().cols() > 0, "Forward has not been called");
   ASSERT(ref_value().rows() == 1 && ref_value().cols() == 1, "Backward on a "
          "non-scalar: " << util_eigen::dimension_string(value_));
@@ -277,7 +285,7 @@ void Variable::Backward(const std::vector<std::shared_ptr<Variable>>
 }
 
 double Variable::ForwardBackward() {
-  std::vector<std::shared_ptr<Variable>> topological_order;
+  sp_v1<Variable> topological_order;
   Forward(&topological_order);
   Backward(topological_order);
   return get_value(0);
@@ -338,26 +346,54 @@ void MultiplyElementwise::PropagateGradient() {
                                        gradient_.array();
 }
 
+void Sum::ComputeValue() {
+  value_ = Parent(0)->ref_value();
+  for (size_t i = 1; i < NumParents(); ++i) {
+    value_ += Parent(i)->ref_value();
+  }
+}
+
+void Sum::PropagateGradient() {
+  for (size_t i = 0; i < NumParents(); ++i) {
+    Parent(i)->ref_gradient() += gradient_;
+  }
+}
+
 void ConcatenateVertical::ComputeValue() {
-  value_.resize(Parent(0)->NumRows() + Parent(1)->NumRows(),
-                Parent(0)->NumColumns());
-  value_ << Parent(0)->ref_value(), Parent(1)->ref_value();
+  value_.resize(gradient_.rows(), gradient_.cols());
+  size_t start_row = 0;
+  for (size_t i = 0; i < NumParents(); ++i) {
+    value_.middleRows(start_row, Parent(i)->NumRows()) = Parent(i)->ref_value();
+    start_row += Parent(i)->NumRows();
+  }
 }
 
 void ConcatenateVertical::PropagateGradient() {
-  Parent(0)->ref_gradient() += gradient_.topRows(Parent(0)->NumRows());
-  Parent(1)->ref_gradient() += gradient_.bottomRows(Parent(1)->NumRows());
+  size_t start_row = 0;
+  for (size_t i = 0; i < NumParents(); ++i) {
+    Parent(i)->ref_gradient() += gradient_.middleRows(start_row,
+                                                      Parent(i)->NumRows());
+    start_row += Parent(i)->NumRows();
+  }
 }
 
 void ConcatenateHorizontal::ComputeValue() {
-  value_.resize(Parent(0)->NumRows(),
-                Parent(0)->NumColumns() + Parent(1)->NumColumns());
-  value_ << Parent(0)->ref_value(), Parent(1)->ref_value();
+  value_.resize(gradient_.rows(), gradient_.cols());
+  size_t start_column = 0;
+  for (size_t i = 0; i < NumParents(); ++i) {
+    value_.middleCols(start_column,
+                      Parent(i)->NumColumns()) = Parent(i)->ref_value();
+    start_column += Parent(i)->NumColumns();
+  }
 }
 
 void ConcatenateHorizontal::PropagateGradient() {
-  Parent(0)->ref_gradient() += gradient_.leftCols(Parent(0)->NumColumns());
-  Parent(1)->ref_gradient() += gradient_.rightCols(Parent(1)->NumColumns());
+  size_t start_column = 0;
+  for (size_t i = 0; i < NumParents(); ++i) {
+    Parent(i)->ref_gradient() += gradient_.middleCols(start_column,
+                                                      Parent(i)->NumColumns());
+    start_column += Parent(i)->NumColumns();
+  }
 }
 
 void Dot::PropagateGradient() {
@@ -435,37 +471,49 @@ size_t Model::AddTemporaryWeight(const Eigen::MatrixXd &temporary_weight) {
   return temporary_index;
 }
 
-std::shared_ptr<Input> Model::MakeInput(size_t weight_index) {
+sp<Input> Model::MakeInput(size_t weight_index) {
+  auto search = active_weights_.find(weight_index);
+  if (search != active_weights_.end()) { return search->second; }
+
   gradients_[weight_index].setZero();  // Clearing gradient
+  active_weights_[weight_index] =
+      std::make_shared<neural::Input>(&weights_[weight_index],
+                                      &gradients_[weight_index]);
   if (!frozen_[weight_index]) { update_set_.insert(weight_index); }
-  auto X = std::make_shared<neural::Input>(&weights_[weight_index],
-                                           &gradients_[weight_index]);
-  active_variables_.push_back(X);
   made_input_ = true;
-  return X;
+  return active_weights_[weight_index];
 }
 
-std::shared_ptr<InputColumn> Model::MakeInputColumn(
-    size_t weight_index, size_t column_index) {
+sp<InputColumn> Model::MakeInputColumn(size_t weight_index,
+                                       size_t column_index) {
+  auto search1 = active_column_weights_.find(weight_index);
+  if (search1 != active_column_weights_.end()) {
+    auto search2 = search1->second.find(column_index);
+    if (search2 != search1->second.end()) { return search2->second; }
+  }
+
   gradients_[weight_index].col(column_index).setZero();  // Clearing gradient
+  active_column_weights_[weight_index][column_index] =
+      std::make_shared<neural::InputColumn>(&weights_[weight_index],
+                                            &gradients_[weight_index],
+                                            column_index);
   if (!frozen_[weight_index]) {
     update_column_set_[weight_index].insert(column_index);
   }
-  auto X = std::make_shared<neural::InputColumn>(
-      &weights_[weight_index], &gradients_[weight_index], column_index);
-  active_variables_.push_back(X);
   made_input_ = true;
-  return X;
+  return active_column_weights_[weight_index][column_index];
 }
 
-std::shared_ptr<Input> Model::MakeTemporaryInput(size_t temporary_index) {
+sp<Input> Model::MakeTemporaryInput(size_t temporary_index) {
+  auto search = active_temporary_weights_.find(temporary_index);
+  if (search != active_temporary_weights_.end()) { return search->second; }
+
   temporary_gradients_[temporary_index].setZero();  // Clearing gradient
-  auto X = std::make_shared<neural::Input>(
-      &temporary_weights_[temporary_index],
-      &temporary_gradients_[temporary_index]);
-  active_variables_.push_back(X);
+  active_temporary_weights_[temporary_index] =
+      std::make_shared<neural::Input>(&temporary_weights_[temporary_index],
+                                      &temporary_gradients_[temporary_index]);
   made_temporary_input_ = true;
-  return X;
+  return active_temporary_weights_[temporary_index];
 }
 
 void Model::ClearComputation() {
@@ -475,7 +523,11 @@ void Model::ClearComputation() {
   temporary_gradients_.clear();
   made_input_ = false;
   made_temporary_input_ = false;
-  active_variables_.clear();  // Will now free active variables out of scope.
+
+  // This will now free the memory allocated to input nodes out of scope.
+  active_weights_.clear();
+  active_column_weights_.clear();
+  active_temporary_weights_.clear();
 }
 
 void Updater::UpdateWeights() {
@@ -591,12 +643,9 @@ RNN::RNN(size_t num_layers, size_t dim_observation, size_t dim_state,
   }
 }
 
-std::vector<std::vector<std::vector<std::shared_ptr<Variable>>>> RNN::Transduce(
-    const std::vector<std::shared_ptr<Variable>> &observation_sequence,
-    const std::vector<std::vector<std::shared_ptr<Variable>>>
-    &initial_state_stack) {
-  std::vector<std::vector<std::vector<std::shared_ptr<Variable>>>>
-      state_stack_sequence;
+sp_v3<Variable> RNN::Transduce(const sp_v1<Variable> &observation_sequence,
+                               const sp_v2<Variable> &initial_state_stack) {
+  sp_v3<Variable> state_stack_sequence;
   state_stack_sequence.push_back(
       ComputeNewStateStack(observation_sequence[0], initial_state_stack, true));
   for (size_t position = 1; position < observation_sequence.size();
@@ -608,42 +657,56 @@ std::vector<std::vector<std::vector<std::shared_ptr<Variable>>>> RNN::Transduce(
   return state_stack_sequence;
 }
 
-std::vector<std::shared_ptr<Variable>> RNN::Batch(
-    const std::vector<std::vector<std::shared_ptr<Variable>>>
-    &unbatched_observation_sequences) {
+sp_v1<Variable> RNN::Batch(const sp_v2<Variable>
+                           &unbatched_observation_sequences) {
   size_t max_length = 0;
   for (const auto &sequence : unbatched_observation_sequences) {
     max_length = std::max(max_length, sequence.size());
   }
   auto empty_observation = model_address_->MakeInput(empty_observation_index_);
-  auto pad = [&](size_t position, size_t batch_element) {
-    const auto &sequence = unbatched_observation_sequences[batch_element];
-    return (position < sequence.size()) ? sequence[position] :
-    empty_observation;
+  auto batch = [&](size_t position) {
+    sp_v1<Variable> observations;
+    for (size_t b = 0; b < unbatched_observation_sequences.size(); ++b) {
+      const auto &sequence = unbatched_observation_sequences[b];
+      observations.push_back(
+          (position < unbatched_observation_sequences[b].size()) ?
+          sequence[position] : empty_observation);
+    }
+    return hcat(observations);
   };
 
-  std::vector<std::shared_ptr<Variable>> batched_observation_sequence;
+  sp_v1<Variable> batched_observation_sequence;
   for (size_t position = 0; position < max_length; ++position) {
-    auto batched_observation = pad(position, 0);
-    for (size_t batch_element = 1;
-         batch_element < unbatched_observation_sequences.size();
-         ++batch_element) {
-      batched_observation = batched_observation ^ pad(position, batch_element);
-    }
-    batched_observation_sequence.push_back(batched_observation);
+    batched_observation_sequence.emplace_back(batch(position));
   }
   return batched_observation_sequence;
 }
 
-std::vector<std::vector<std::shared_ptr<Variable>>> RNN::ComputeNewStateStack(
-    const std::shared_ptr<Variable> &observation,
-    const std::vector<std::vector<std::shared_ptr<Variable>>>
-    &previous_state_stack, bool is_beginning) {
+sp_v1<Variable> RNN::EncodeByFinalTop(const sp_v2<Variable>
+                                      &unbatched_observation_sequences,
+                                      bool reverse) {
+  auto batched_observation_sequence = Batch(unbatched_observation_sequences);
+  auto batched_state_sequence = Transduce(batched_observation_sequence);
+  sp_v1<Variable> encodings;
+  for (size_t i = 0; i < unbatched_observation_sequences.size(); ++i) {
+    size_t length = unbatched_observation_sequences[i].size();
+    auto encoding = column(batched_state_sequence[length - 1].back()[0], i);
+    encodings.emplace_back(encoding);
+  }
+  return encodings;
+}
+
+sp_v2<Variable> RNN::ComputeNewStateStack(const sp<Variable> &observation,
+                                          const sp_v2<Variable>
+                                          &previous_state_stack,
+                                          bool is_beginning) {
   ASSERT(is_beginning || previous_state_stack.size() > 0,
          "No previous state stack given even though not beginning a sequence");
-  std::vector<std::shared_ptr<Variable>> initial_state;
+  sp_v1<Variable> initial_state;
   if (is_beginning) {  // Starting a new sequence
     batch_size_ = observation->NumColumns();
+
+    // Prepare initial state and dropout weights if necessary.
     if (previous_state_stack.size() == 0) {
       *model_address_->weight(initial_state_index_) =
           Eigen::MatrixXd::Zero(dim_state_, batch_size_);
@@ -654,9 +717,9 @@ std::vector<std::vector<std::shared_ptr<Variable>>> RNN::ComputeNewStateStack(
             model_address_->MakeInput(initial_state_index_));
       }
     }
-    if (dropout_rate_ > 0.0) { ComputeDropoutWeights(); }
+    if (dropout_rate_ > 0.0) { InitializeDropoutWeights(); }
   }
-  std::vector<std::vector<std::shared_ptr<Variable>>> state_stack;
+  sp_v2<Variable> state_stack;
   for (size_t layer = 0; layer < num_layers_; ++layer) {
     const auto &O = (layer == 0) ? observation : state_stack.back()[0];
     const auto &previous_state = (previous_state_stack.size() > 0) ?
@@ -671,7 +734,7 @@ void RNN::UseDropout(double dropout_rate, size_t random_seed) {
   gen_.seed(random_seed);
 }
 
-void RNN::ComputeDropoutWeights() {
+void RNN::InitializeDropoutWeights() {
   double keep_rate = 1.0 - dropout_rate_;
   std::bernoulli_distribution d(keep_rate);
   for (size_t layer = 0; layer < num_layers_; ++layer) {
@@ -707,10 +770,9 @@ SimpleRNN::SimpleRNN(size_t num_layers, size_t dim_observation,
   }
 }
 
-std::vector<std::shared_ptr<Variable>> SimpleRNN::ComputeNewState(
-    const std::shared_ptr<Variable> &observation,
-    const std::vector<std::shared_ptr<Variable>> &previous_state,
-    size_t layer) {
+sp_v1<Variable> SimpleRNN::ComputeNewState(const sp<Variable> &observation,
+                                           const sp_v1<Variable>
+                                           &previous_state, size_t layer) {
   auto O = observation;
   auto previous_H = previous_state[0];
   if (dropout_rate_ > 0.0) {
@@ -767,10 +829,9 @@ LSTM::LSTM(size_t num_layers, size_t dim_observation, size_t dim_state,
   }
 }
 
-std::vector<std::shared_ptr<Variable>> LSTM::ComputeNewState(
-    const std::shared_ptr<Variable> &observation,
-    const std::vector<std::shared_ptr<Variable>> &previous_state,
-    size_t layer) {
+sp_v1<Variable> LSTM::ComputeNewState(const sp<Variable> &observation,
+                                      const sp_v1<Variable> &previous_state,
+                                      size_t layer) {
   auto O = observation;
   auto previous_H = previous_state[0];
 
