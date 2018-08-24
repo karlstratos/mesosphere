@@ -31,6 +31,10 @@ class Variable: public dag::Node {
   // Upon initialization, the following must be done immediately:
   //   (1) Specify parents.
   //   (2) Initialize gradient to zero with correct shape.
+  //
+  // This is done *after* creating a shared pointer to the variable outside
+  // (e.g., instead of doing it internally within the constructor) so that weak
+  // pointers to the variable can be created/added to parent nodes.
   Variable() : dag::Node() { }
 
   //------- binary operators ---------------------------------------------------

@@ -1,0 +1,71 @@
+./main /tmp/iaan_nonbatch ../../data/pos/sample_en.words ../../data/pos/sample_en.tags --train --zsize 3 --epochs 1000 --step 0.01 --width 1 --batch 80 --wdim 200
+time ./main /tmp/iaan_nonbatch ../../data/pos/wsj45/en.words.1000 ../../data/pos/wsj45/en.tags.1000 --train --zsize 45 --epochs 5 --step 0.01 --width 1 --batch 80 --wdim 100
+
+Epoch   1  updates: 305  loss: -0.32
+Epoch   2  updates: 305  loss: -1.11
+Epoch   3  updates: 305  loss: -1.80
+Epoch   4  updates: 305  loss: -2.29
+Epoch   5  updates: 305  loss: -2.67
+
+real	0m7.163s
+user	0m7.134s
+sys	0m0.021s
+
+
+time python run_pos.py --dynet-mem 512 --dynet-seed 42 --dynet-autobatch 0 /tmp/pythoniaan data/pos/orig/en.words.1000 --gold data/pos/orig/en.tags.1000 --train --verbose --arch default --zsize 45 --wdim 100 --cdim 0 --jdim 0 --lrate 0.01 --drate 0.0 --epochs 5 --batch 80 --metric m2o --width 1 --loss lb
+
+
+Epoch  1  updates: 305  loss: -0.42  (1.0s)
+Epoch  2  updates: 305  loss: -1.39  (1.0s)
+Epoch  3  updates: 305  loss: -2.27  (1.0s)
+Epoch  4  updates: 305  loss: -2.84  (1.0s)
+Epoch  5  updates: 305  loss: -3.20  (1.1s)
+
+real	0m7.008s
+user	0m6.724s
+sys	0m0.235s
+
+
+
+
+time ./main /tmp/iaan_nonbatch ../../data/pos/wsj45/en.words.1000 ../../data/pos/wsj45/en.tags.1000 --train --zsize 45 --epochs 2 --step 0.01 --width 1 --batch 80 --wdim 10 --cdim 10
+
+Epoch   1  updates: 305  loss: -0.33
+Epoch   2  updates: 305  loss: -0.83
+
+real	0m22.660s
+user	0m21.522s
+sys	0m1.115s
+
+time python run_pos.py --dynet-mem 512 --dynet-seed 42 --dynet-autobatch 0 /tmp/pythoniaan data/pos/orig/en.words.1000 --gold data/pos/orig/en.tags.1000 --train --verbose --arch default --zsize 45 --wdim 10 --cdim 10 --jdim 0 --lrate 0.01 --drate 0.0 --epochs 2 --batch 80 --metric m2o --width 1 --loss lb
+
+Epoch  1  updates: 305  loss: -0.30  (5.5s)
+Epoch  2  updates: 305  loss: -0.83  (5.5s)
+
+real	0m11.923s
+user	0m11.483s
+sys	0m0.394s
+
+
+
+
+
+
+
+
+time ./main /tmp/iaan_nonbatch ../../data/pos/wsj45/en.words.1000 ../../data/pos/wsj45/en.tags.1000 --train --zsize 45 --epochs 1 --step 0.01 --width 1 --batch 80 --wdim 100 --cdim 50
+
+Epoch   1  updates: 305  loss: -0.59
+
+real	0m26.496s
+user	0m24.744s
+sys	0m1.743s
+
+
+time python run_pos.py --dynet-mem 512 --dynet-seed 42 --dynet-autobatch 0 /tmp/pythoniaan data/pos/orig/en.words.1000 --gold data/pos/orig/en.tags.1000 --train --verbose --arch default --zsize 45 --wdim 100 --cdim 50 --jdim 0 --lrate 0.01 --drate 0.0 --epochs 1 --batch 80 --metric m2o --width 1 --loss lb
+
+Epoch  1  updates: 305  loss: -0.64  (8.6s)
+
+real	0m9.598s
+user	0m9.260s
+sys	0m0.313s
