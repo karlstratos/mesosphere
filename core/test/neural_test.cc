@@ -127,7 +127,7 @@ TEST(ReduceSumRowWise, Test) {
   auto y = sum_rwise(X);  // (3, 7)
 
   // 18 + 49 = 67
-  auto z = 2 * pick(y, {0}) * pick(y, {0}) + pick(y, {1}) * pick(y, {1});
+  auto z = 2 * row(y, 0) * row(y, 0) + row(y, 1) * row(y, 1);
   double result = z->ForwardBackward();
 
   EXPECT_EQ(67, result);
@@ -485,33 +485,13 @@ TEST(LSTM, Test) {
   size_t i_X1 = model.AddWeight({{1}});
   size_t i_X2 = model.AddWeight({{-1}});
   neural::LSTM lstm(1, 1, 1, &model);
-  Eigen::MatrixXd raw_U(1, 1);
-  raw_U << 0.5;
-  Eigen::MatrixXd raw_V(1, 1);
-  raw_V << 0.5;
-  Eigen::MatrixXd raw_b(1, 1);
-  raw_b << 0.5;
-  Eigen::MatrixXd input_U(1, 1);
-  input_U << 1;
-  Eigen::MatrixXd input_V(1, 1);
-  input_V << 1;
-  Eigen::MatrixXd input_b(1, 1);
-  input_b << 1;
-  Eigen::MatrixXd forget_U(1, 1);
-  forget_U << 0;
-  Eigen::MatrixXd forget_V(1, 1);
-  forget_V << 0;
-  Eigen::MatrixXd forget_b(1, 1);
-  forget_b << 0;
-  Eigen::MatrixXd output_U(1, 1);
-  output_U << 2;
-  Eigen::MatrixXd output_V(1, 1);
-  output_V << 2;
-  Eigen::MatrixXd output_b(1, 1);
-  output_b << 2;
-  lstm.SetWeights(raw_U, raw_V, raw_b, input_U, input_V, input_b,
-                  forget_U, forget_V, forget_b, output_U, output_V, output_b,
-                  0);
+  Eigen::MatrixXd U(4, 1);
+  Eigen::MatrixXd V(4, 1);
+  Eigen::MatrixXd b(4, 1);
+  U << 0.5, 1, 0, 2;
+  V << 0.5, 1, 0, 2;
+  b << 0.5, 1, 0, 2;
+  lstm.SetWeights(U, V, b, 0);
 
   auto X1 = model.MakeInput(i_X1);
   auto X2 = model.MakeInput(i_X2);
@@ -761,6 +741,25 @@ TEST(InputColumn, MixedUpdates) {
   EXPECT_EQ(2, gd.num_column_updates(i_X, 0));
   EXPECT_EQ(1, gd.num_column_updates(i_X, 1));
   EXPECT_EQ(1, gd.num_column_updates(i_X, 2));
+}
+
+TEST(Block, Test) {
+  neural::Model model;
+  //   1    2    3
+  size_t i_X = model.AddWeight({{1, 2, 3}, {4, 5, 6}, {7, 8, 9}});
+  auto X = model.MakeInput(i_X);
+  auto Z = sum(block(X, 1, 1, 2, 2));  // 5 + 6 + 8 + 9
+  double result = Z->ForwardBackward();
+  EXPECT_EQ(28, result);
+  EXPECT_EQ(0, X->get_gradient(0, 0));
+  EXPECT_EQ(0, X->get_gradient(0, 1));
+  EXPECT_EQ(0, X->get_gradient(0, 2));
+  EXPECT_EQ(0, X->get_gradient(1, 0));
+  EXPECT_EQ(1, X->get_gradient(1, 1));
+  EXPECT_EQ(1, X->get_gradient(1, 2));
+  EXPECT_EQ(0, X->get_gradient(2, 0));
+  EXPECT_EQ(1, X->get_gradient(2, 1));
+  EXPECT_EQ(1, X->get_gradient(2, 2));
 }
 
 TEST(RNN, EncodeByFinalTop) {

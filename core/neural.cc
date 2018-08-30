@@ -191,21 +191,21 @@ sp<Variable> hcat(const sp_v1<Variable> &Xs) {
   return Z;
 }
 
+sp<Variable> block(const sp<Variable> &X,
+                   size_t start_row, size_t start_column,
+                   size_t num_rows, size_t num_columns) {
+  auto Z = std::make_shared<Block>();
+  Z->AddParent(X);
+  Z->SetBlock(start_row, start_column, num_rows, num_columns);
+  return Z;
+}
+
 sp<Variable> pick(const sp<Variable> &X, const std::vector<size_t> &indices) {
   ASSERT(X->NumColumns() == indices.size(), X->Shape() << ", vs "
          << indices.size() << " indices");
   auto Z = std::make_shared<Pick>(indices);
   Z->AddParent(X);
   Z->gradient_ = Eigen::MatrixXd::Zero(1, indices.size());
-  return Z;
-}
-
-sp<Variable> column(const sp<Variable> &X, size_t index) {
-  ASSERT(index < X->NumColumns(), "trying to pick column " << index
-         << " from X with shape " << X->Shape());
-  auto Z = std::make_shared<PickColumn>(index);
-  Z->AddParent(X);
-  Z->gradient_ = Eigen::MatrixXd::Zero(X->NumRows(), 1);
   return Z;
 }
 
@@ -302,6 +302,49 @@ InputColumn::InputColumn(Eigen::MatrixXd *value_address,
                          size_t column_index) :
     Input(value_address, gradient_address), column_index_(column_index) { }
 
+Eigen::Ref<Eigen::MatrixXd> Block::ref_value() {
+  // If parent value hasn't been computed, neither has this node's.
+  if (Parent(0)->ref_value().cols() == 0) { return Parent(0)->ref_value(); }
+
+  if (start_row_ == 0 && num_rows_ == Parent(0)->NumRows()) {
+    if (num_columns_ == 1) {
+      return Parent(0)->ref_value().col(start_column_);
+    } else {
+      return Parent(0)->ref_value().middleCols(start_column_, num_columns_);
+    }
+  } else if (start_column_ == 0 && num_columns_ == Parent(0)->NumColumns()) {
+    // Using row(i) gives type incompatible error...
+    return Parent(0)->ref_value().middleRows(start_row_, num_rows_);
+  } else {
+    return Parent(0)->ref_value().block(start_row_, start_column_,
+                                        num_rows_, num_columns_);
+  }
+}
+
+Eigen::Ref<Eigen::MatrixXd> Block::ref_gradient() {
+  if (start_row_ == 0 && num_rows_ == Parent(0)->NumRows()) {
+    if (num_columns_ == 1) {
+      return Parent(0)->ref_gradient().col(start_column_);
+    } else {
+      return Parent(0)->ref_gradient().middleCols(start_column_, num_columns_);
+    }
+  } else if (start_column_ == 0 && num_columns_ == Parent(0)->NumColumns()) {
+    // Using row(i) gives type incompatible error...
+    return Parent(0)->ref_gradient().middleRows(start_row_, num_rows_);
+  } else {
+    return Parent(0)->ref_gradient().block(start_row_, start_column_,
+                                           num_rows_, num_columns_);
+  }
+}
+
+void Block::SetBlock(size_t start_row, size_t start_column, size_t num_rows,
+                     size_t num_columns) {
+  start_row_ = start_row;
+  start_column_ = start_column;
+  num_rows_ = num_rows;
+  num_columns_ = num_columns;
+}
+
 void Add::ComputeValue() {
   if (matrix_vector_) {
     value_ = Parent(0)->ref_value().colwise() +
@@ -335,8 +378,10 @@ void Subtract::PropagateGradient() {
 }
 
 void Multiply::PropagateGradient() {
-  Parent(0)->ref_gradient() += gradient_ * Parent(1)->ref_value().transpose();
-  Parent(1)->ref_gradient() += Parent(0)->ref_value().transpose() * gradient_;
+  Parent(0)->ref_gradient().noalias() += gradient_ *
+                                         Parent(1)->ref_value().transpose();
+  Parent(1)->ref_gradient().noalias() += Parent(0)->ref_value().transpose() *
+                                         gradient_;
 }
 
 void MultiplyElementwise::PropagateGradient() {
@@ -802,30 +847,12 @@ LSTM::LSTM(size_t num_layers, size_t dim_observation, size_t dim_state,
     RNN(num_layers, dim_observation, dim_state, 2, model_address) {
   for (size_t layer = 0; layer < num_layers_; ++layer) {
     size_t dim_in = (layer == 0) ? dim_observation_ : dim_state_;
-    raw_U_indices_.push_back(
-        model_address_->AddWeight(dim_state_, dim_in, "unit-variance"));
-    raw_V_indices_.push_back(
-        model_address_->AddWeight(dim_state_, dim_state_, "unit-variance"));
-    raw_b_indices_.push_back(
-        model_address_->AddWeight(dim_state_, 1, "unit-variance"));
-    input_U_indices_.push_back(
-        model_address_->AddWeight(dim_state_, dim_in, "unit-variance"));
-    input_V_indices_.push_back(
-        model_address_->AddWeight(dim_state_, dim_state_, "unit-variance"));
-    input_b_indices_.push_back(
-        model_address_->AddWeight(dim_state_, 1, "unit-variance"));
-    forget_U_indices_.push_back(
-        model_address_->AddWeight(dim_state_, dim_in, "unit-variance"));
-    forget_V_indices_.push_back(
-        model_address_->AddWeight(dim_state_, dim_state_, "unit-variance"));
-    forget_b_indices_.push_back(
-        model_address_->AddWeight(dim_state_, 1, "unit-variance"));
-    output_U_indices_.push_back(
-        model_address_->AddWeight(dim_state_, dim_in, "unit-variance"));
-    output_V_indices_.push_back(
-        model_address_->AddWeight(dim_state_, dim_state_, "unit-variance"));
-    output_b_indices_.push_back(
-        model_address_->AddWeight(dim_state_, 1, "unit-variance"));
+    U_indices_.push_back(model_address_->AddWeight(4 * dim_state_, dim_in,
+                                                   "unit-variance"));
+    V_indices_.push_back(model_address_->AddWeight(4 * dim_state_, dim_state,
+                                                   "unit-variance"));
+    b_indices_.push_back(model_address_->AddWeight(4 * dim_state_, 1,
+                                                   "unit-variance"));
   }
 }
 
@@ -834,69 +861,34 @@ sp_v1<Variable> LSTM::ComputeNewState(const sp<Variable> &observation,
                                       size_t layer) {
   auto O = observation;
   auto previous_H = previous_state[0];
-
   if (dropout_rate_ > 0.0) {
     O = model_address_->MakeInput(observation_mask_indices_[layer]) % O;
     previous_H = model_address_->MakeInput(state_mask_indices_[layer])
                  % previous_H;
   }
-  const auto &raw_U = model_address_->MakeInput(raw_U_indices_[layer]);
-  const auto &raw_V = model_address_->MakeInput(raw_V_indices_[layer]);
-  const auto &raw_b = model_address_->MakeInput(raw_b_indices_[layer]);
+  const auto &U = model_address_->MakeInput(U_indices_[layer]);
+  const auto &V = model_address_->MakeInput(V_indices_[layer]);
+  const auto &b = model_address_->MakeInput(b_indices_[layer]);
 
-  auto raw_H = tanh(raw_U * O + raw_V * previous_H + raw_b);
+  auto stack_all = U * O + V * previous_H + b;
+  auto raw_H = tanh(rows(stack_all, 0, dim_state_));
+  auto stack_gates = logistic(rows(stack_all, dim_state_, 3 * dim_state_));
 
-  const auto &input_U = model_address_->MakeInput(input_U_indices_[layer]);
-  const auto &input_V = model_address_->MakeInput(input_V_indices_[layer]);
-  const auto &input_b = model_address_->MakeInput(input_b_indices_[layer]);
+  auto gated_H = rows(stack_gates, 0, dim_state_) % raw_H;
+  auto gated_previous_C = rows(stack_gates,
+                               dim_state_, dim_state_) % previous_state[1];
 
-  auto input_gate = logistic(input_U * O + input_V * previous_H + input_b);
-  auto gated_H = input_gate % raw_H;
-
-  const auto &previous_C = previous_state[1];
-  const auto &forget_U = model_address_->MakeInput(forget_U_indices_[layer]);
-  const auto &forget_V = model_address_->MakeInput(forget_V_indices_[layer]);
-  const auto &forget_b = model_address_->MakeInput(forget_b_indices_[layer]);
-
-  auto forget_gate = logistic(forget_U * O + forget_V * previous_H + forget_b);
-  auto gated_previous_C = forget_gate % previous_C;
   auto new_C = gated_H + gated_previous_C;
-
-  const auto &output_U = model_address_->MakeInput(output_U_indices_[layer]);
-  const auto &output_V = model_address_->MakeInput(output_V_indices_[layer]);
-  const auto &output_b = model_address_->MakeInput(output_b_indices_[layer]);
-
-  auto output_gate = logistic(output_U * O + output_V * previous_H + output_b);
-  auto new_H = output_gate % tanh(new_C);
-
+  auto new_H = rows(stack_gates, 2 * dim_state_, dim_state_) % tanh(new_C);
   return {new_H, new_C};
 }
 
-void LSTM::SetWeights(const Eigen::MatrixXd &raw_U_weight,
-                      const Eigen::MatrixXd &raw_V_weight,
-                      const Eigen::MatrixXd &raw_b_weight,
-                      const Eigen::MatrixXd &input_U_weight,
-                      const Eigen::MatrixXd &input_V_weight,
-                      const Eigen::MatrixXd &input_b_weight,
-                      const Eigen::MatrixXd &forget_U_weight,
-                      const Eigen::MatrixXd &forget_V_weight,
-                      const Eigen::MatrixXd &forget_b_weight,
-                      const Eigen::MatrixXd &output_U_weight,
-                      const Eigen::MatrixXd &output_V_weight,
-                      const Eigen::MatrixXd &output_b_weight,
-                      size_t layer) {
-  *model_address_->weight(raw_U_indices_[layer]) = raw_U_weight;
-  *model_address_->weight(raw_V_indices_[layer]) = raw_V_weight;
-  *model_address_->weight(raw_b_indices_[layer]) = raw_b_weight;
-  *model_address_->weight(input_U_indices_[layer]) = input_U_weight;
-  *model_address_->weight(input_V_indices_[layer]) = input_V_weight;
-  *model_address_->weight(input_b_indices_[layer]) = input_b_weight;
-  *model_address_->weight(forget_U_indices_[layer]) = forget_U_weight;
-  *model_address_->weight(forget_V_indices_[layer]) = forget_V_weight;
-  *model_address_->weight(forget_b_indices_[layer]) = forget_b_weight;
-  *model_address_->weight(output_U_indices_[layer]) = output_U_weight;
-  *model_address_->weight(output_V_indices_[layer]) = output_V_weight;
-  *model_address_->weight(output_b_indices_[layer]) = output_b_weight;
+void LSTM::SetWeights(const Eigen::MatrixXd &U_weight,
+                      const Eigen::MatrixXd &V_weight,
+                      const Eigen::MatrixXd &b_weight, size_t layer) {
+  *model_address_->weight(U_indices_[layer]) = U_weight;
+  *model_address_->weight(V_indices_[layer]) = V_weight;
+  *model_address_->weight(b_indices_[layer]) = b_weight;
 }
 
 }  // namespace neural

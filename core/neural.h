@@ -110,9 +110,25 @@ class Variable: public dag::Node {
   friend sp<Variable> hcat(const sp_v1<Variable> &Xs);
 
   //------- pick operators -----------------------------------------------------
+  friend sp<Variable> block(const sp<Variable> &X,
+                            size_t start_row, size_t start_column,
+                            size_t num_rows, size_t num_columns);
+  friend sp<Variable> rows(const sp<Variable> &X,
+                           size_t start_row, size_t num_rows) {
+    return block(X, start_row, 0, num_rows, X->NumColumns());
+  }
+  friend sp<Variable> columns(const sp<Variable> &X,
+                              size_t start_column, size_t num_columns) {
+    return block(X, 0, start_column, X->NumRows(), num_columns);
+  }
+  friend sp<Variable> column(const sp<Variable> &X, size_t column_index) {
+    return block(X, 0, column_index, X->NumRows(), 1);
+  }
+  friend sp<Variable> row(const sp<Variable> &X, size_t row_index) {
+    return block(X, row_index, 0, 1, X->NumColumns());
+  }
   friend sp<Variable> pick(const sp<Variable> &X,
                            const std::vector<size_t> &indices);
-  friend sp<Variable> column(const sp<Variable> &X, size_t index);
   friend sp<Variable> cross_entropy(const sp<Variable> &X,
                                     const std::vector<size_t> &indices);
   friend sp<Variable> binary_cross_entropy(const sp<Variable> &X,
@@ -208,6 +224,23 @@ class InputColumn: public Input {
 
  protected:
   size_t column_index_;
+};
+
+// X.block(i, j, p, q): block of size (p,q), starting at (i,j)
+class Block: public Variable {
+ public:
+  void ComputeValue() override { }  // Value just a block of parent
+  void PropagateGradient() override { }  // Gradients propagated from children
+
+  Eigen::Ref<Eigen::MatrixXd> ref_value() override;
+  Eigen::Ref<Eigen::MatrixXd> ref_gradient() override;
+  void SetBlock(size_t start_row, size_t start_column, size_t num_rows,
+                size_t num_columns);
+ protected:
+  size_t start_row_;
+  size_t start_column_;
+  size_t num_rows_;
+  size_t num_columns_;
 };
 
 // X + Y: If X is a non-vector and Y is a vector, assume X + [Y ... Y].
@@ -428,18 +461,6 @@ class Pick: public Variable {
   void PropagateGradient() override;
  protected:
   std::vector<size_t> indices_;
-};
-
-// (X, l) => X(:,l)
-class PickColumn: public Variable {
- public:
-  PickColumn(size_t index) : Variable(), index_(index) { }
-  void ComputeValue() override { value_ = Parent(0)->ref_value().col(index_); }
-  void PropagateGradient() override {
-    Parent(0)->ref_gradient().col(index_) += gradient_;
-  }
- protected:
-  size_t index_;
 };
 
 // - log [softmax(x)]_l: column-wise
@@ -712,33 +733,14 @@ class LSTM: public RNN {
                                   const sp_v1<Variable> &previous_state,
                                   size_t layer) override;
 
-  void SetWeights(const Eigen::MatrixXd &raw_U_weight,
-                  const Eigen::MatrixXd &raw_V_weight,
-                  const Eigen::MatrixXd &raw_b_weight,
-                  const Eigen::MatrixXd &input_U_weight,
-                  const Eigen::MatrixXd &input_V_weight,
-                  const Eigen::MatrixXd &input_b_weight,
-                  const Eigen::MatrixXd &forget_U_weight,
-                  const Eigen::MatrixXd &forget_V_weight,
-                  const Eigen::MatrixXd &forget_b_weight,
-                  const Eigen::MatrixXd &output_U_weight,
-                  const Eigen::MatrixXd &output_V_weight,
-                  const Eigen::MatrixXd &output_b_weight,
-                  size_t layer);
+  void SetWeights(const Eigen::MatrixXd &U_weight,
+                  const Eigen::MatrixXd &V_weight,
+                  const Eigen::MatrixXd &b_weight, size_t layer);
 
  protected:
-  std::vector<size_t> raw_U_indices_;
-  std::vector<size_t> raw_V_indices_;
-  std::vector<size_t> raw_b_indices_;
-  std::vector<size_t> input_U_indices_;
-  std::vector<size_t> input_V_indices_;
-  std::vector<size_t> input_b_indices_;
-  std::vector<size_t> forget_U_indices_;
-  std::vector<size_t> forget_V_indices_;
-  std::vector<size_t> forget_b_indices_;
-  std::vector<size_t> output_U_indices_;
-  std::vector<size_t> output_V_indices_;
-  std::vector<size_t> output_b_indices_;
+  std::vector<size_t> U_indices_;
+  std::vector<size_t> V_indices_;
+  std::vector<size_t> b_indices_;
 };
 
 }  // namespace neural
