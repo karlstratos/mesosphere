@@ -505,6 +505,11 @@ class Model {
     return AddWeight(util_eigen::initialize(num_rows, num_columns,
                                             initialization_method), frozen);
   }
+  // Adds a weight whose rows/columns are initialized separately.
+  size_t AddWeight(std::vector<size_t> row_partition_sizes,
+                   std::vector<size_t> column_partition_sizes,
+                   std::string initialization_method,
+                   bool frozen=false);
   size_t AddWeight(const std::vector<std::vector<double>> &rows,
                    bool frozen=false) {
     return AddWeight(util_eigen::construct_matrix_from_rows(rows), frozen);

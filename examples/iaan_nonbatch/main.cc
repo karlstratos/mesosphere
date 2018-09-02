@@ -200,10 +200,7 @@ int main (int argc, char* argv[]) {
   for (size_t epoch_num = 1; epoch_num <= num_epochs; ++epoch_num) {
     auto batches = prepare_batches();
     double total_batch_loss = 0.0;
-    size_t k = 0;
     for (const auto &batch : batches) {
-      ++k;
-      //std::cout << "batch " << k << " / " << batches.size() << std::endl;
       std::vector<std::shared_ptr<neural::Variable>> qs;
       std::vector<std::shared_ptr<neural::Variable>> ps;
       for (const auto &ij : batch) {
@@ -218,12 +215,6 @@ int main (int argc, char* argv[]) {
       total_batch_loss += loss_value;
     }
     double avg_loss = total_batch_loss  / batches.size();
-    std::cout << "Epoch " << util_string::buffer_string(
-        std::to_string(epoch_num), 3, ' ', "right")
-              << "  updates: " << batches.size()
-              << "  loss: " << util_string::printf_format("%.2f", avg_loss)
-              << std::endl;
-    /*
     double perf = compute_performance();
     std::cout << "Epoch " << util_string::buffer_string(
         std::to_string(epoch_num), 3, ' ', "right")
@@ -231,6 +222,5 @@ int main (int argc, char* argv[]) {
               << "  loss: " << util_string::printf_format("%.2f", avg_loss)
               << "  Y perf: " << util_string::printf_format("%.2f", perf)
               << std::endl;
-    */
   }
 }

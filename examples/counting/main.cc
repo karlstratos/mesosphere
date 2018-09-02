@@ -13,9 +13,9 @@ int main (int argc, char* argv[]) {
   size_t random_seed = 42;
   std::string rnn_type = "lstm";
   size_t xdim = 1;
-  size_t hdim = 8;
+  size_t hdim = 12;
   size_t num_layers = 1;
-  size_t N = 5000;
+  size_t N = 10000;
   double step_size = 0.01;
   size_t max_train_length = 100;
   size_t test_length = 200;

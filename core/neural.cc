@@ -442,13 +442,17 @@ void ConcatenateHorizontal::PropagateGradient() {
 }
 
 void Dot::PropagateGradient() {
-  Parent(0)->ref_gradient() += Parent(1)->ref_value() * gradient_.asDiagonal();
-  Parent(1)->ref_gradient() += Parent(0)->ref_value() * gradient_.asDiagonal();
+  Parent(0)->ref_gradient().noalias() += Parent(1)->ref_value() *
+                                         gradient_.asDiagonal();
+  Parent(1)->ref_gradient().noalias() += Parent(0)->ref_value() *
+                                         gradient_.asDiagonal();
 }
 
 void Softmax::PropagateGradient() {
   Eigen::MatrixXd A = gradient_.cwiseProduct(value_);
-  Parent(0)->ref_gradient() += A - value_ * A.colwise().sum().asDiagonal();
+  Parent(0)->ref_gradient() += A;
+  Parent(0)->ref_gradient().noalias() -= value_ *
+                                         A.colwise().sum().asDiagonal();
 }
 
 void Pick::ComputeValue() {
@@ -476,7 +480,8 @@ void PickNegativeLogSoftmax::PropagateGradient() {
   for (size_t i = 0; i < indices_.size(); ++i) {
     softmax_cache_(indices_[i], i) -= 1.0;
   }
-  Parent(0)->ref_gradient() += softmax_cache_ * gradient_.asDiagonal();
+  Parent(0)->ref_gradient().noalias() += softmax_cache_ *
+                                         gradient_.asDiagonal();
 }
 
 void FlagNegativeLogistic::ComputeValue() {
@@ -493,7 +498,32 @@ void FlagNegativeLogistic::PropagateGradient() {
   for (size_t i = 0; i < flags_.size(); ++i) {
     if (flags_[i]) { logistic_cache_(i) -= 1.0; }
   }
-  Parent(0)->ref_gradient() += logistic_cache_.cwiseProduct(gradient_);
+  Parent(0)->ref_gradient().noalias() += logistic_cache_.
+                                         cwiseProduct(gradient_);
+}
+
+size_t Model::AddWeight(std::vector<size_t> row_partition_sizes,
+                        std::vector<size_t> column_partition_sizes,
+                        std::string initialization_method,
+                        bool frozen) {
+  size_t num_rows = std::accumulate(row_partition_sizes.begin(),
+                                    row_partition_sizes.end(), 0);
+  size_t num_columns = std::accumulate(column_partition_sizes.begin(),
+                                       column_partition_sizes.end(), 0);
+  Eigen::MatrixXd weight(num_rows, num_columns);
+  size_t row_index = 0;
+  for (size_t row_partition_size : row_partition_sizes) {
+    size_t column_index = 0;
+    for (size_t column_partition_size : column_partition_sizes) {
+      weight.block(row_index, column_index,
+                   row_partition_size, column_partition_size) =
+          util_eigen::initialize(row_partition_size, column_partition_size,
+                                 initialization_method);
+      column_index += column_partition_size;
+    }
+    row_index += row_partition_size;
+  }
+  return AddWeight(weight, frozen);
 }
 
 size_t Model::AddWeight(const Eigen::MatrixXd &weight, bool frozen) {
@@ -847,12 +877,15 @@ LSTM::LSTM(size_t num_layers, size_t dim_observation, size_t dim_state,
     RNN(num_layers, dim_observation, dim_state, 2, model_address) {
   for (size_t layer = 0; layer < num_layers_; ++layer) {
     size_t dim_in = (layer == 0) ? dim_observation_ : dim_state_;
-    U_indices_.push_back(model_address_->AddWeight(4 * dim_state_, dim_in,
-                                                   "unit-variance"));
-    V_indices_.push_back(model_address_->AddWeight(4 * dim_state_, dim_state,
-                                                   "unit-variance"));
-    b_indices_.push_back(model_address_->AddWeight(4 * dim_state_, 1,
-                                                   "unit-variance"));
+    U_indices_.push_back(model_address_->AddWeight(
+        {dim_state_, dim_state_, dim_state_, dim_state_},  {dim_in},
+        "unit-variance"));
+    V_indices_.push_back(model_address_->AddWeight(
+        {dim_state_, dim_state_, dim_state_, dim_state_},  {dim_state_},
+        "unit-variance"));
+    b_indices_.push_back(model_address_->AddWeight(
+        {dim_state_, dim_state_, dim_state_, dim_state_}, {1},
+        "unit-variance"));
   }
 }
 
